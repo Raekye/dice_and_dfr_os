@@ -39,8 +39,9 @@
  *   - bytes 2-15: name, null terminated (unless length 14)
  * - blocks (256 bytes) * 1024 (2 ^ 8 * 4) for total 262144 bytes
  *   - common
- *     - byte 0: length of content in block (range 256 - 2)
- *     - byte 1: next block, 0 for no more blocks
+ *     - byte 0: 0 for free, 1 for in use
+ *     - byte 1: length of content in block (range 256 - 2)
+ *     - byte 2: next block, 0 for no more blocks
  *   - directories
  *     - list of inode indexes, one byte each
  *     - end of list can be determined by block length
