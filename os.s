@@ -3,8 +3,10 @@
  * # Richard and dfr OS
  * Hmmmmmm.
  *
- * TODO: malloc, vechs word size
+ * TODO: vechs word size
  * TODO: vechs check for failed malloc
+ * TODO: vechs save ra
+ * TODO: malloc off by 1?
  *
  * ## Conventions
  * - Most registers are callee-saved; I find this easier to work with
@@ -37,11 +39,11 @@
  *     - bit 1: 0 for directory, 1 for file
  *     - bits 4-7: upper 4 bits of index of first block
  *   - byte 1: lower 8 bits of index of first block (range 2 ^ 12 = 4096)
- *   - bytes 2-15: name, null terminated (unless length 14)
+ *   - bytes 2-15: name, null terminated, max length 13
  * - blocks (256 bytes) * 1024 (2 ^ 8 * 4) for total 262144 bytes
  *   - common
  *     - byte 0: 0 for free, 1 for in use
- *     - byte 1: length of content in block (range 256 - 2)
+ *     - byte 1: length of content in block (range 256 - 3)
  *     - byte 2: next block, 0 for no more blocks
  *   - directories
  *     - list of inode indexes, one byte each
@@ -53,6 +55,7 @@
  * - structure
  *   - byte 0: process ID
  *   - byte 1: state - 0 for dead/unused, 1 for running, 2 for waiting
+ *   - bytes 4-7: pc
  * - additional data
  *   - 1 byte: executing process ID
  *   - 1 byte: foreground process ID (which proccess has the terminal, receives stdin)
@@ -61,6 +64,54 @@
  * - heap block with 1 byte header + `n` bytes data
  *   - byte 0: size of block (o if free)
  *   - bytes 1-`n`: block data (0 if free)
+ */
+
+/*
+addi sp, sp, -84
+stw r4, 0(sp)
+stw r5, 4(sp)
+stw r6, 8(sp)
+stw r7, 12(sp)
+stw r8, 16(sp)
+stw r9, 20(sp)
+stw r10, 24(sp)
+stw r11, 28(sp)
+stw r12, 32(sp)
+stw r13, 36(sp)
+stw r14, 40(sp)
+stw r15, 44(sp)
+stw r16, 48(sp)
+stw r17, 52(sp)
+stw r18, 56(sp)
+stw r19, 60(sp)
+stw r20, 64(sp)
+stw r21, 68(sp)
+stw r22, 72(sp)
+stw r23, 76(sp)
+stw ra, 80(sp)
+
+ldw r4, 0(sp)
+ldw r5, 4(sp)
+ldw r6, 8(sp)
+ldw r7, 12(sp)
+ldw r8, 16(sp)
+ldw r9, 20(sp)
+ldw r10, 24(sp)
+ldw r11, 28(sp)
+ldw r12, 32(sp)
+ldw r13, 36(sp)
+ldw r14, 40(sp)
+ldw r15, 44(sp)
+ldw r16, 48(sp)
+ldw r17, 52(sp)
+ldw r18, 56(sp)
+ldw r19, 60(sp)
+ldw r20, 64(sp)
+ldw r21, 68(sp)
+ldw r22, 72(sp)
+ldw r23, 76(sp)
+ldw ra, 80(sp)
+addi sp, sp, 84
  */
 
 .global seog_ti_os
@@ -82,6 +133,12 @@ ROMANIA_NODES:
 ROMANIA_BLOCKS:
 	.skip ROMANIA_BLOCKS_BYTES
 
+EPSILON:
+	.string ""
+
+FOO:
+	.string "foo"
+
 /* INTERRUPTS */
 .section .exceptions, "ax"
 ISR:
@@ -94,16 +151,465 @@ ISR:
 seog_ti_os:
 	// stack starts at highest address
 	movi sp, -1
-	br seog_ti_os
+
+	// root dir
+	mov r4, r0
+	movia r5, EPSILON
+	call os_mkdir
+
+	// foo
+	movia r5, FOO
+	call os_kdir
+
+	br have_fun_looping
 
 /* romania */
+/*
+ * @param node id of parent folder
+ * @param pointer to string name
+ */
 os_touch:
 	ret
 
+/*
+ * r8: node id
+ * r9: node address
+ * r10: block id
+ * r11: block address
+ * r12: temporary register (block id in node structure, others)
+ * @param node id of parent folder
+ * @param pointer to string name
+ */
 os_mkdir:
+	addi sp, sp, -40
+	stw r4, 0(sp)
+	stw r5, 4(sp)
+	stw r8, 8(sp)
+	stw r9, 12(sp)
+	stw r10, 16(sp)
+	stw r11, 20(sp)
+	stw r12, 24(sp)
+	stw r22, 28(sp)
+	stw r23, 32(sp)
+	stw ra, 36(sp)
+
+	movia r22, ROMANIA_NODES
+	movia r23, ROMANIA_BLOCKS
+
+	call os_romania_allocate_node
+	mov r8, r2
+	add r9, r8, r22
+	call os_romania_allocate_block
+	mov r10, r2
+	add r11, r10, r23
+
+	// upper 4 bits of block id
+	srli r12, r10, 8
+	slli r12, r12, 4
+	// lower bits 01 - directory, in use
+	ori r12, r12, 0xf1
+	mov r12, 0x1
+
+	stb r12, 0(r9)
+	stb r10, 1(r9)
+
+	mov r4, r5
+	call os_strlen
+	movi r12, 13
+	bgt r2, r12, os_mkdir_bad_name
+	// then valid name
+	// r5 = node address + name offset
+	addi r5, r9, 2
+	call os_strcpy
+	// TODO: null terminate
+	mov r2, r8
+	br os_mkdir_epilogue
+
+os_mkdir_bad_name:
+	// TODO: handle
+	br os_mkdir_epilogue
+
+os_mkdir_epilogue:
+	ldw r4, 0(sp)
+	ldw r5, 4(sp)
+	ldw r8, 8(sp)
+	ldw r9, 12(sp)
+	ldw r10, 16(sp)
+	ldw r11, 20(sp)
+	ldw r12, 24(sp)
+	ldw r22, 28(sp)
+	ldw r23, 32(sp)
+	ldw ra, 36(sp)
+	addi sp, sp, 40
 	ret
 
+/*
+ * r8: node address
+ * r9: read byte
+ * @param node id
+ */
 os_rm:
+	addi sp, sp, -12
+	stw r8, 0(sp)
+	stw r9, 4(sp)
+	stw ra, 8(sp)
+
+	movia r22, ROMANIA_NODES
+	// r8 = offset + index
+	add r8, r22, r4
+	ldb r9, 0(r8)
+	// get second bit, directory or file
+	andi r9, r9, 0x2
+	beq r9, r0, os_rm_handle_dir
+	br os_rm_handle_file
+
+os_rm_handle_file:
+	call os_rm_file
+	br os_rm_epilogue
+
+os_rm_handle_dir:
+	call os_rm_dir
+	br os_rm_epilogue
+
+os_rm_epilogue:
+	ldw r8, 0(sp)
+	ldw r9, 4(sp)
+	ldw ra, 8(sp)
+	addi sp, sp, 12
+	ret
+
+/*
+ * @param node id
+ */
+os_rm_file:
+	addi sp, sp, -8
+	stw r4, 0(sp)
+	stw ra, 4(sp)
+
+	call os_romania_block_from_node
+	call os_romania_free_node
+	mov r4, r2
+	call os_romania_free_block_chain
+
+os_rm_file_epilogue:
+	ldw r4, 0(sp)
+	ldw ra, 4(sp)
+	addi sp, sp, 8
+	ret
+
+/*
+ * r4: modified
+ * r5: counter
+ * r8: vechs
+ * r9: vechs size
+ * @param node id
+ */
+os_rm_dir:
+	addi sp, sp, -20
+	stw r4, 0(sp)
+	stw r5, 4(sp)
+	stw r8, 8(sp)
+	stw r9, 12(sp)
+	stw ra, 16(sp)
+
+	// get block id
+	call os_romania_block_from_node
+	mov r4, r2
+	// get block contents
+	call os_romania_read_block_chain
+	mov r8, r2
+	mov r4, r8
+	call os_vechs_size
+	mov r9, r2
+	mov r5, r0
+
+os_rm_dir_loop:
+	beq r5, r9, os_rm_dir_done
+	call os_vechs_get
+	mov r4, r2
+	call os_rm
+	// reset r4 to vechs
+	mov r4, r8
+	addi r5, r5, 1
+	br os_rm_dir_loop
+
+os_rm_dir_done:
+	call os_vechs_delete
+
+os_rm_dir_epilogue:
+	ldw r4, 0(sp)
+	ldw r5, 4(sp)
+	ldw r8, 8(sp)
+	ldw r9, 12(sp)
+	ldw ra, 16(sp)
+	addi sp, sp, 20
+	ret
+
+os_cp:
+	ret
+
+/*
+ * r4: modified
+ * r8: vechs
+ * r9: block address
+ * r10: read byte
+ * r11: block address pointer (copying byte)
+ * r12: copy counter
+ * @param block id
+ */
+os_romania_read_block_chain:
+	addi sp, sp, -28
+	stw r4, 0(sp)
+	stw r8, 4(sp)
+	stw r9, 8(sp)
+	stw r10, 12(sp)
+	stw r11, 16(sp)
+	stw r12, 20(sp)
+	stw ra, 24(sp)
+
+	call os_vechs_new
+	mov r8, r2
+	movia r22, ROMANIA_BLOCKS
+
+os_romania_read_block_chain_handle_block:
+	// r9 = offset + index
+	add r9, r22, r4
+
+	// read length
+	ldb r10, 1(r9)
+	addi r11, r9, 3
+	mov r12, r0
+
+os_romania_read_block_chain_copy_block:
+	beq r12, r10, os_romania_read_block_chain_copy_block_done
+	mov r4, r8
+	ldb r5, 0(r11)
+	call os_vechs_push
+	addi r12, r12, 1
+	addi r11, r11, 1
+
+os_romania_read_block_chain_copy_block_done:
+	ldb r4, 2(sp)
+	beq r4, r0, os_romania_read_block_chain_done
+	br os_romania_read_block_chain_handle_block
+
+os_romania_read_block_chain_done:
+	mov r2, r8
+	br os_romania_read_block_chain_epilogue
+
+os_romania_read_block_chain_epilogue:
+	ldw r4, 0(sp)
+	ldw r8, 4(sp)
+	ldw r9, 8(sp)
+	ldw r10, 12(sp)
+	ldw r11, 16(sp)
+	ldw r12, 20(sp)
+	ldw ra, 24(sp)
+	addi sp, sp, 28
+	ret
+
+/*
+ * @param node id
+ */
+os_romania_block_from_node:
+	addi sp, sp, -16
+	stw r8, 0(sp)
+	stw r9, 4(sp)
+	stw r10, 8(sp)
+	stw r22, 12(sp)
+
+	movia r22, ROMANIA_NODES
+	// r8 = offset + index
+	add r8, r22, r4
+	// load byte 0
+	ldb r9, 0(r8)
+	// load byte 1
+	ldb r10, 1(r8)
+	// get upper bits of byte 0, the upper 4 bits of block id
+	andi r9, r9, 0xf0
+	// shift upper 4 bits of block id
+	slli r10, r10, 8
+	or r2, r9, r10
+
+os_romania_block_from_node_epilogue:
+	ldw r8, 0(sp)
+	ldw r9, 4(sp)
+	ldw r10, 8(sp)
+	ldw r22, 12(sp)
+	addi sp, sp, 16
+
+/*
+ * @param node id of current folder
+ * @param pointer to string name
+ */
+os_romania_find_node:
+	ret
+
+/*
+ * r8: address
+ * r22: nodes offset
+ * r23: nodes bytes
+ */
+os_romania_allocate_node:
+	addi sp, sp, -12
+	stw r8, 0(sp)
+	stw r22, 4(sp)
+	stw r23, 8(sp)
+
+	// initialize
+	mov r2, r0
+	movia r22, ROMANIA_NODES
+	movia r23, ROMANIA_NODES_BYTES
+
+os_romania_allocate_node_loop:
+	// r8 = index + offset
+	add r8, r2, r22
+	// read first byte of a node
+	ldb r10, 0(r8)
+	// if 0, found block
+	beq r10, r0, os_romania_allocate_node_epilogue
+	// then non-zero, skip over node
+	addi r2, r2, 16
+	br os_romania_allocate_node_loop
+
+os_romania_allocate_node_epilogue:
+	ldw r8, 0(sp)
+	ldw r22, 4(sp)
+	ldw r23, 8(sp)
+	addi sp, sp, 12
+	ret
+
+/*
+ * r8: address
+ * r22: blocks offset
+ * r23: blocks bytes
+ */
+os_romania_allocate_block:
+	addi sp, sp, -12
+	stw r8, 0(sp)
+	stw r22, 4(sp)
+	stw r23, 8(sp)
+
+	// initialize
+	mov r2, r0
+	movia r22, ROMANIA_BLOCKS
+	movia r23, ROMANIA_BLOCKS_BYTES
+
+os_romania_allocate_block_loop:
+	// r8 = index + offset
+	add r8, r2, r22
+	// read first byte of a block
+	ldb r10, 0(r8)
+	// if 0, found block
+	beq r10, r0, os_romania_allocate_block_found
+	// then non-zero, skip over block
+	addi r2, r2, 256
+	br os_romania_allocate_block_loop
+
+os_romania_allocate_block_found:
+	// NOTE: r23 nolonger needed, used as temporary register
+	movi r23, 1
+	// mark block as used
+	stb r23, 0(r8)
+	br os_romania_allocate_block_epilogue
+
+os_romania_allocate_block_epilogue:
+	ldw r8, 0(sp)
+	ldw r22, 4(sp)
+	ldw r23, 8(sp)
+	addi sp, sp, 12
+	ret
+
+/*
+ * r4: modified
+ * r8: block address
+ * r22: block offset
+ * @param block id
+ */
+os_romania_free_block_chain:
+	addi sp, sp, -16
+	stw r4, 0(sp)
+	stw r8, 4(sp)
+	stw r22, 8(sp)
+	stw ra, 12(sp)
+
+	mov r22, ROMANIA_BLOCKS
+	// r8 = offset + index
+	add r8, r22, r4
+
+	ldb r4, 2(r8)
+	beq r4, r0, os_romania_free_block_chain_free
+	call os_romania_free_block_chain
+
+os_romania_free_block_chain_free:
+	call os_romania_free_block
+
+os_romania_free_block_chain_epilogue:
+	ldw r4, 0(sp)
+	ldw r8, 4(sp)
+	ldw r22, 8(sp)
+	ldw ra, 12(sp)
+	addi sp, sp, 16
+	ret
+
+/*
+ * r8: counter
+ * r9: index
+ * r10: upper bound
+ */
+os_romania_free_node:
+	addi sp, sp, -12
+	stw r8, 0(sp)
+	stw r9, 4(sp)
+	stw r10, 8(sp)
+	
+	mov r8, r0
+	movi r10, 16
+
+os_romania_free_node_loop:
+	beq r8, r10, os_romania_free_node_epilogue
+	// r9 points to a byte in the node we are zeroing
+	add r9, r4, r8
+	// zero byte
+	stb r0, 0(r9)
+	addi r8, r8, 1
+	br os_romania_free_node_loop
+
+os_romania_free_node_epilogue:
+	ldw r8, 0(sp)
+	ldw r9, 4(sp)
+	ldw r10, 8(sp)
+	addi sp, sp, 12
+	ret
+
+/*
+ * r8: counter
+ * r9: index
+ * r10: upper bound
+ */
+os_romania_free_block:
+	addi sp, sp, -12
+	stw r8, 0(sp)
+	stw r9, 4(sp)
+	stw r10, 8(sp)
+	
+	mov r8, r0
+	movi r10, 256
+
+os_romania_free_block_loop:
+	beq r8, r10, os_romania_free_block_epilogue
+	// r9 points to a byte in the block we are zeroing
+	add r9, r4, r8
+	// zero byte
+	stb r0, 0(r9)
+	addi r8, r8, 1
+	br os_romania_free_block_loop
+
+os_romania_free_block_epilogue:
+	ldw r8, 0(sp)
+	ldw r9, 4(sp)
+	ldw r10, 8(sp)
+	addi sp, sp, 12
 	ret
 
 /* processes */
@@ -128,14 +634,16 @@ os_sleep:
  * @param n
  */
 os_malloc:
-	addi sp, sp, -28
-	stw r8, 0(sp)
-	stw r9, 4(sp)
-	stw r10, 8(sp)
-	stw r11, 12(sp)
-	stw r21, 16(sp)
-	stw r22, 20(sp)
-	stw r23, 24(sp)
+	addi sp, sp, -36
+	stw r4, 0(sp)
+	stw r8, 4(sp)
+	stw r9, 8(sp)
+	stw r10, 12(sp)
+	stw r11, 16(sp)
+	stw r12, 20(sp)
+	stw r21, 24(sp)
+	stw r22, 28(sp)
+	stw r23, 32(sp)
 
 	// constraints
 	ble r4, r0, os_malloc_oom
@@ -146,30 +654,44 @@ os_malloc:
 	movia r23, HEAP_BYTES
 	add r21, r22, r23
 
+	// round size up to multiple of 4 bytes
+	// get lower 2 bits
+	andi r12, r4, 0x3
+	// invert bits
+	xori r12, r12, 0xff
+	// increment
+	addi r12, r12, 1
+	// grab lower 2 bits
+	andi r12, r12, 0x3
+	// add
+	add r4, r4, r12
+
 os_malloc_crawl_loop:
 	bge r8, r23, os_malloc_oom
 	// reset counter
 	mov r11, r0
-	// load heap
+	// load header
 	add r9, r8, r22
-	ldb r10, 0(r9)
+	ldw r10, 0(r9)
+	// skip over header bytes
+	addi r8, r8, 4
 	// check block header
 	beq r10, r0 os_malloc_found_free_block
 	// found used block
 	// skip over allocated bytes
 	add r8, r8, r10
-	// skip over 1 more
-	addi r8, r8, 1
 	// continue searching
 	br os_malloc_crawl_loop
 
 os_malloc_found_free_block:
+	// check oom
+	beq r9, r21, os_malloc_oom
 	// increment counter
 	addi r11, r11, 1
 	// load heap
-	add r9, 1
-	beq r9, r21, os_malloc_oom
 	ldb r10, 0(r9)
+	// increment heap pointer
+	addi r9, r9, 1
 	// if not 0, we hit a block before we found enough space
 	bne r10, r0, os_malloc_found_insufficient_block
 	// then 0
@@ -181,10 +703,16 @@ os_malloc_found_free_block:
 os_malloc_found_insufficient_block:
 	// r8 + r11 at the last byte we loaded, which was non-zero, meaning it was the header/size of a block
 	add r8, r8, r11
+	// address of last byte we loaded
+	add r9, r8, r22
+	// -4 in binary is all 1s with least significant two 0s
+	andi r9, r9, -4
+	// load header
+	ldw r10, 0(r9)
 	// r8 + r11 + r10 skips the number of bytes in the block we hit
 	add r8, r8, r10
-	// skip over 1 more
-	addi r8, r8, 1
+	// skip over header
+	addi r8, r8, 4
 	// continue searching
 	br os_malloc_crawl_loop
 
@@ -192,8 +720,6 @@ os_malloc_found_sufficient_block:
 	// r8 + r22 at the first zero byte, which will be the header
 	add r9, r8, r22
 	stw r4, 0(r9)
-	// data starts after 1 byte header
-	addi r2, r9, 1
 	br os_malloc_epilogue
 
 os_malloc_oom:
@@ -201,14 +727,16 @@ os_malloc_oom:
 	br os_malloc_epilogue
 
 os_malloc_epilogue:
-	ldw r8, 0(sp)
-	ldw r9, 4(sp)
-	ldw r10, 8(sp)
-	ldw r11, 12(sp)
-	ldw r21, 16(sp)
-	ldw r22, 20(sp)
-	ldw r23, 24(sp)
-	addi sp, sp, 28
+	ldw r4, 0(sp)
+	ldw r8, 4(sp)
+	ldw r9, 8(sp)
+	ldw r10, 12(sp)
+	ldw r11, 16(sp)
+	ldw r12, 20(sp)
+	ldw r21, 24(sp)
+	ldw r22, 28(sp)
+	ldw r23, 32(sp)
+	addi sp, sp, 36
 	ret
 
 /*
@@ -224,9 +752,9 @@ os_free:
 	stw r10, 8(sp)
 
 	// read header
-	ldb r8, -1(r4)
+	ldw r8, -4(r4)
 	// zero header
-	stb r0, -1(r4)
+	stw r0, -4(r4)
 	mov r9, r0
 	mov r10, r4
 
@@ -459,3 +987,55 @@ os_rational_delete:
 /* skye */
 os_skye:
 	ret
+
+/* strings */
+/*
+ * @param from address
+ * @param to address
+ */
+os_strcpy:
+	addi sp, sp, -12
+	stw r4, 0(sp)
+	stw r5, 4(sp)
+	stw r8, 8(sp)
+
+os_strcpy_loop:
+	ldb r8, 0(r4)
+	stw r8, 0(r5)
+	beq r8, r0, os_strlen_epilogue
+	addi r4, r4, 1
+	addi r5, r5, 1
+	br os_strlen_loop
+
+os_strcpy_epilogue:
+	ldw r4, 0(sp)
+	ldw r5, 4(sp)
+	ldw r8, 8(sp)
+	addi sp, sp, 12
+	ret
+
+/*
+ * @param str
+ */
+os_strlen:
+	addi sp, sp, -8
+	stw r4, 0(sp)
+	stw r8, 4(sp)
+
+	mov r2, r0
+
+os_strlen_loop:
+	ldb r8, 0(r4)
+	beq r8, r0, os_strlen_epilogue
+	addi r4, r4, 1
+	addi r2, r2, 1
+	br os_strlen_loop
+
+os_strlen_epilogue:
+	ldw r4, 0(sp)
+	ldw r8, 4(sp)
+	addi sp, sp, 8
+	ret
+
+have_fun_looping:
+	br have_fun_looping
