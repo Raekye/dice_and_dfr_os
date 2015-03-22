@@ -3,10 +3,7 @@
  * # Richard and dfr OS
  * Hmmmmmm.
  *
- * TODO: vechs word size
  * TODO: vechs check for failed malloc
- * TODO: vechs save ra
- * TODO: malloc off by 1?
  *
  * ## Conventions
  * - Most registers are callee-saved; I find this easier to work with
@@ -61,9 +58,10 @@
  *   - 1 byte: foreground process ID (which proccess has the terminal, receives stdin)
  *
  * ## Dynamic memory
- * - heap block with 1 byte header + `n` bytes data
- *   - byte 0: size of block (o if free)
- *   - bytes 1-`n`: block data (0 if free)
+ * - heap block with 4 byte header + `n` bytes data
+ *   - bytes 0-3: size of block (0 if free)
+ *   - bytes 4-`n + 3`: block data (0 if free)
+ * - on free, 0 bytes
  */
 
 /*
@@ -112,6 +110,40 @@ ldw r22, 72(sp)
 ldw r23, 76(sp)
 ldw ra, 80(sp)
 addi sp, sp, 84
+ */
+
+/*
+addi sp, sp, -56
+stw r4, 0(sp)
+stw r5, 4(sp)
+stw r6, 8(sp)
+stw r7, 12(sp)
+stw r8, 16(sp)
+stw r9, 20(sp)
+stw r10, 24(sp)
+stw r11, 28(sp)
+stw r12, 32(sp)
+stw r20, 36(sp)
+stw r21, 40(sp)
+stw r22, 44(sp)
+stw r23, 48(sp)
+stw ra, 52(sp)
+
+ldw r4, 0(sp)
+ldw r5, 4(sp)
+ldw r6, 8(sp)
+ldw r7, 12(sp)
+ldw r8, 16(sp)
+ldw r9, 20(sp)
+ldw r10, 24(sp)
+ldw r11, 28(sp)
+ldw r12, 32(sp)
+ldw r20, 36(sp)
+ldw r21, 40(sp)
+ldw r22, 44(sp)
+ldw r23, 48(sp)
+ldw ra, 52(sp)
+addi sp, sp, 56
  */
 
 .global seog_ti_os
@@ -779,9 +811,10 @@ os_free_epilogue:
  * @param n
  */
 os_vechs_new:
-	addi sp, sp, -8
+	addi sp, sp, -12
 	stw r4, 0(sp)
 	stw r8, 4(sp)
+	stw ra, 8(sp)
 
 	// malloc structure
 	movi r4, 12
@@ -799,8 +832,9 @@ os_vechs_new:
 
 os_vechs_new_epilogue:
 	ldw r4, 0(sp)
-	ldw r8, 0(sp)
-	addi sp, sp, 8
+	ldw r8, 4(sp)
+	ldw ra, 8(sp)
+	addi sp, sp, 12
 	ret
 
 /*
@@ -809,9 +843,10 @@ os_vechs_new_epilogue:
  * @param ptr
  */
 os_vechs_delete:
-	addi sp, sp, -8
+	addi sp, sp, -12
 	stw r4, 0(sp)
 	stw r8, 4(sp)
+	stw ra, 8(sp)
 
 	// get pointer to data
 	ldw r8, 0(r4)
@@ -824,7 +859,8 @@ os_vechs_delete:
 os_vechs_delete_epilogue:
 	ldw r4, 0(sp)
 	ldw r8, 4(sp)
-	addi, sp, sp, 8
+	ldw ra, 8(sp)
+	addi, sp, sp, 12
 	ret
 
 /*
@@ -862,8 +898,9 @@ os_vechs_set:
  * @param x
  */
 os_vechs_push:
-	addi sp, sp, -4
+	addi sp, sp, -8
 	stw r6, 0(sp)
+	stw ra, 4(sp)
 
 	// ensure capacity
 	call os_vechs_normalize
@@ -880,6 +917,7 @@ os_vechs_push:
 os_vechs_push_epilogue:
 	mov r5, r6
 	ldw r6, 0(sp)
+	ldw ra, 4(sp)
 	addi sp, sp, 4
 	ret
 
@@ -888,8 +926,9 @@ os_vechs_push_epilogue:
  * @param ptr
  */
 os_vechs_pop:
-	addi sp, sp, -4
+	addi sp, sp, -8
 	stw r5, 0(sp)
+	stw ra, 4(sp)
 
 	call os_vechs_size
 	// calculate next size
@@ -901,7 +940,8 @@ os_vechs_pop:
 
 os_vechs_pop_epilogue:
 	ldw r5, 0(sp)
-	addi sp, sp, 4
+	ldw ra, 4(sp)
+	addi sp, sp, 8
 	ret
 
 /*
@@ -914,13 +954,14 @@ os_vechs_pop_epilogue:
  * @param ptr
  */
 os_vechs_normalize:
-	addi sp, sp, -24
+	addi sp, sp, -28
 	stw r4, 0(sp)
 	stw r5, 4(sp)
 	stw r8, 8(sp)
 	stw r9, 12(sp)
 	stw r10, 16(sp)
 	stw r11, 20(sp)
+	stw ra, 24(sp)
 
 	// used size
 	call os_vechs_size
@@ -965,13 +1006,14 @@ os_vechs_normalize_finalize:
 	br os_vechs_normalize_epilogue
 
 os_vechs_normalize_epilogue:
-	add sp, sp, 24
 	ldw r4, 0(sp)
 	ldw r5, 4(sp)
 	ldw r8, 8(sp)
 	ldw r9, 12(sp)
 	ldw r10, 16(sp)
 	ldw r11, 20(sp)
+	stw ra, 24(sp)
+	add sp, sp, 28
 	ret
 
 /* rational */
