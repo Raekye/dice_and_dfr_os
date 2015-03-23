@@ -4,6 +4,9 @@
  * Hmmmmmm.
  *
  * TODO: vechs check for failed malloc
+ * TODO: fork pre-increments process num
+ * TODO: adjust stack pointer for processes
+ * TODO: can load into same register? (e.g. ldw r2, 0(r2))
  *
  * ## Conventions
  * - Most registers are callee-saved; I find this easier to work with
@@ -49,10 +52,14 @@
  *     - arbitrary contents of file
  *
  * ## Processes
- * - structure
- *   - byte 0: process ID
- *   - byte 1: state - 0 for dead/unused, 1 for running, 2 for waiting
+ * - process table structure
+ *   - bytes 0-3: process ID
  *   - bytes 4-7: pc
+ *   - bytes 8-11: stack offset
+ *   - byte 12: state - 0 for dead/unused, 1 for running, 2 for waiting
+ * - each process has
+ *   - saved registers for context switching (total 128 processes * 32 registers * 4 bytes)
+ *   - dedicated stack area (total 128 processes * 4096 byte stack)
  * - additional data
  *   - 1 byte: executing process ID
  *   - 1 byte: foreground process ID (which proccess has the terminal, receives stdin)
@@ -151,6 +158,11 @@ addi sp, sp, 56
 .equ HEAP_BYTES 4096
 .equ ROMANIA_NODES_BYTES 4096
 .equ ROMANIA_BLOCKS_BYTES 252144
+.equ PROCESS_TABLE_MAX 128
+.equ PROCESS_TABLE_BYTES 2048
+.equ PROCESS_REGISTERS_BYTES 16384
+.equ PROCESS_STACKS_BYTES 524288
+.equ PROCESS_TABLE_ENTRY_BYTES 16
 
 /* DATA */
 .data
@@ -164,6 +176,24 @@ ROMANIA_NODES:
 	.skip ROMANIA_NODES_BYTES
 ROMANIA_BLOCKS:
 	.skip ROMANIA_BLOCKS_BYTES
+
+PROCESS_TABLE:
+	.skip PROCESS_TABLE_BYTES
+
+PROCESS_REGISTERS:
+	.skip PROCESS_REGISTERS_BYTES
+
+PROCESS_STACKS:
+	.skip PROCESS_STACKS_BYTES
+
+PROCESS_CURRENT:
+	.skip 4
+
+PROCESS_FOREGROUND:
+	.skip 4
+
+PROCESS_NUM:
+	.word 1
 
 EPSILON:
 	.string ""
@@ -677,7 +707,306 @@ os_romania_free_block_epilogue:
 	ret
 
 /* processes */
+
+/*
+ * r23: process current
+ */
+os_process_current:
+	addi sp, sp, -4
+	stw r23, 0(sp)
+
+	movia r23, PROCESS_CURRENT
+	ldw r2, 0(r23)
+
+	ldw r23, 0(sp)
+	addi sp, sp, 4
+	ret
+
+/*
+ * r8: process table counter
+ * r9: address in process table
+ * r10: loaded data
+ * r22: process max
+ * r23: process table
+ * @param process id
+ */
+os_process_table_index:
+	addi sp, sp, -20
+	stw r8, 0(sp)
+	stw r9, 4(sp)
+	stw r10, 8(sp)
+	stw r22, 12(sp)
+	stw r23, 16(sp)
+
+	movia r23, PROCESS_TABLE
+	movia r22, PROCESS_MAX
+	mov r8, r0
+	mov r9, r23
+
+os_process_table_index_find_entry:
+	// bounds check
+	beq r8, r22, os_process_table_index_unfound_entry
+	// load process id
+	ldw r10, 0(r9)
+	// if equals argument
+	beq r10, r4, os_process_table_index_found_entry
+	// then not equal, increment counter, increment address/pointer
+	addi r8, r8, 1
+	addi r9, r9, 16
+	// loop
+	br os_process_table_index_find_entry
+
+os_process_table_index_found_entry:
+	mov r2, r8
+	br os_process_table_index_epilogue
+
+os_process_table_index_unfound_entry:
+	movi r2, -1
+	br os_process_table_index_epilogue
+
+os_process_table_index_epilogue:
+	ldw r8, 0(sp)
+	ldw r9, 4(sp)
+	ldw r10, 8(sp)
+	ldw r22, 12(sp)
+	ldw r23, 16(sp)
+	addi sp, sp, 20
+	ret
+
+/*
+ * r23: process table
+ * @param process id
+ */
+os_process_table_entry:
+	addi sp, sp, -8
+	stw r23, 0(sp)
+	stw ra, 4(sp)
+
+	movia r23, PROCESS_TABLE
+	// get index
+	call os_process_table_index
+	// index * size
+	mulli r2, r2, 16
+	// base address + offset
+	add r2, r23, r2
+
+	ldw r23, 0(sp)
+	ldw ra, 4(sp)
+	addi sp, sp, 8
+	ret
+
+/*
+ * r4: modified
+ * r5: modified
+ * r6: modified
+ * @param parent process id
+ * @param child process table index
+ */
+os_process_duplicate_stack:
+	addi sp, sp, -16
+	stw r4, 0(sp)
+	stw r5, 4(sp)
+	stw r6, 8(sp)
+	stw ra, 12(sp)
+
+	movia r23, PROCESS_TABLE
+	// get parent process stack offset
+	call os_process_stack_offset
+	// set first argument
+	mov r4, r2
+	// stack grows downward, point to end
+	addi r5, r5, 1
+	// offset = index * size
+	muli r5, r5, 16
+	// address = base + offset
+	add r5, r23, r5
+	// set third argument
+	movia r6, PROCESS_TABLE_ENTRY_BYTES
+	// memcpy
+	call os_memcpy
+
+	ldw r4, 0(sp)
+	ldw r5, 4(sp)
+	ldw r6, 8(sp)
+	ldw ra, 12(sp)
+	addi sp, sp, 16
+	ret
+
+/*
+ * @param process id
+ */
+os_process_stack_offset:
+	addi sp, sp, -4
+	stw ra, 0(sp)
+
+	call os_process_table_entry
+	ldw r2, 8(r2)
+
+	ldw ra, 0(sp)
+	addi sp, sp, 4
+	ret
+
+/*
+ * r8: child process id (process number)
+ * r9: index in process table
+ * r10: address in process table
+ * r11: process table entry state
+ * r12: address in process registers
+ * r13: pointer to top of stack of child
+ * r14: next pc for child process
+ * r19: process stacks
+ * r20: process registers
+ * r21: process table max
+ * r22: process table
+ * r23: process num
+ */
 os_fork:
+	addi sp, sp, -68
+	stw r8, 0(sp)
+	stw r9, 4(sp)
+	stw r10, 8(sp)
+	stw r11, 12(sp)
+	stw r12, 16(sp)
+	stw r13, 20(sp)
+	stw r14, 24(sp)
+	stw r15, 28(sp)
+	stw r16, 32(sp)
+	stw r17, 36(sp)
+	stw r18, 40(sp)
+	stw r19, 44(sp)
+	stw r20, 48(sp)
+	stw r21, 52(sp)
+	stw r22, 56(sp)
+	stw r23, 60(sp)
+	stw ra, 64(sp)
+
+	movia r23, PROCESS_NUM
+	movia r22, PROCESS_TABLE
+	movia r21, PROCESS_TABLE_MAX
+	movia r20, PROCESS_REGISTERS
+	movia r19, PROCESS_STACKS
+	mov r9, r0
+	mov r10, r22
+
+	// load process num
+	ldw r8, 0(r23)
+
+os_fork_find_empty_entry:
+	// check for max processes
+	beq r9, r21, os_fork_out_of_processes
+	// read process status
+	ldb r11, 12(r10)
+	// if 0, then empty entry
+	beq r11, r0, os_fork_found_empty_entry
+	// then look at next entry
+	addi r9, r9, 1
+	addi r10, r10, 16
+	br os_fork_find_empty_entry
+
+os_fork_found_empty_entry:
+	// increment process num
+	addi r8, r8, 1
+	// save process num
+	stw r8, 0(r23)
+
+	// duplicate stack
+	call os_process_current
+	// set first argument
+	mov r4, r2
+	// set second argument
+	mov r5, r9
+	call os_process_duplicate_stack
+
+	// add new entry for child process
+	// set process id
+	stw r8, 0(r10)
+	// pc set below
+	// set stack pointer
+	// point to top
+	addi r13, r9, 1
+	// index * size
+	muli r13, r13, 16
+	// base + offset
+	add r13, r19, r13
+	// save stack pointer
+	stw r13, 8(r10)
+	// set status running
+	// r2 used as temporary register
+	movi r2, 1
+	stb r2, 12(sp)
+
+	// save registers for child process
+	// offset into registers
+	muli r12, r9, 32
+	// address = base address + offset
+	addi r12, r20, r12
+
+	// save registers, except skip r0, and r2 <- r0 for child
+	stw r1, 4(r12)
+	stw r0, 8(r12)
+	stw r3, 12(r12)
+	stw r4, 16(r12)
+	stw r5, 20(r12)
+	stw r6, 24(r12)
+	stw r7, 28(r12)
+	stw r8, 32(r12)
+	stw r9, 36(r12)
+	stw r10, 40(r12)
+	stw r11, 44(r12)
+	stw r12, 48(r12)
+	stw r13, 52(r12)
+	stw r14, 56(r12)
+	stw r15, 60(r12)
+	stw r16, 64(r12)
+	stw r17, 68(r12)
+	stw r18, 72(r12)
+	stw r19, 76(r12)
+	stw r20, 80(r12)
+	stw r21, 84(r12)
+	stw r22, 88(r12)
+	stw r23, 92(r12)
+	stw r24, 96(r12)
+	stw r25, 100(r12)
+	stw r26, 104(r12)
+	stw r27, 108(r12)
+	stw r28, 112(r12)
+	stw r29, 116(r12)
+	stw r30, 120(r12)
+	stw r31, 124(r12)
+
+	// when the os switches to the child, it will reload the registers, and continue executing
+	// it will have reloaded 0 as the return value, and return from fork
+	nextpc r14
+	stw r14, 4(r10)
+
+	br os_fork_epilogue
+
+os_fork_out_of_processes:
+	movi r2, -1
+	br os_fork_epilogue
+
+os_fork_epilogue:
+	ldw r8, 0(sp)
+	ldw r9, 4(sp)
+	ldw r10, 8(sp)
+	ldw r11, 12(sp)
+	ldw r12, 16(sp)
+	ldw r13, 20(sp)
+	ldw r14, 24(sp)
+	ldw r15, 28(sp)
+	ldw r16, 32(sp)
+	ldw r17, 36(sp)
+	ldw r18, 40(sp)
+	ldw r19, 44(sp)
+	ldw r20, 48(sp)
+	ldw r21, 52(sp)
+	ldw r22, 56(sp)
+	ldw r23, 60(sp)
+	ldw ra, 64(sp)
+	addi sp, sp, 68
+	ret
+
+os_exec:
 	ret
 
 os_mort:
@@ -1108,6 +1437,44 @@ os_strlen_epilogue:
 
 /* hmmm */
 os_putchar:
+	ret
+
+/*
+ * r8: counter
+ * r9: address
+ * r10: loaded byte
+ * @param from address
+ * @param to address
+ * @param num bytes
+ */
+os_memcpy:
+	addi sp, sp, -12
+	stw r8, 0(sp)
+	stw r9, 4(sp)
+	stw r10, 8(sp)
+
+	mov r8, r0
+
+os_memcpy_loop:
+	beq r8, r6, os_memcpy_epilogue
+	// address = base + offset
+	add r9, r4, r8
+	// load byte
+	ldb r10, 0(r9)
+	// address = base + offset
+	add r9, r5, r8
+	// store byte
+	stb r10, 0(r9)
+	// increment
+	addi r8, r8, 1
+	// loop
+	br os_memcpy_loop
+
+os_memcpy_epilogue:
+	ldw r8, 0(sp)
+	ldw r9, 4(sp)
+	ldw r10, 8(sp)
+	addi sp, sp, 12
 	ret
 
 have_fun_looping:
