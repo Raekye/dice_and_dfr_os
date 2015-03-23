@@ -5,8 +5,8 @@
  *
  * TODO: vechs check for failed malloc
  * TODO: fork pre-increments process num
- * TODO: adjust stack pointer for processes
  * TODO: can load into same register? (e.g. ldw r2, 0(r2))
+ * TODO: system call disable interrupts
  *
  * ## Conventions
  * - Most registers are callee-saved; I find this easier to work with
@@ -72,85 +72,7 @@
  */
 
 /*
-addi sp, sp, -84
-stw r4, 0(sp)
-stw r5, 4(sp)
-stw r6, 8(sp)
-stw r7, 12(sp)
-stw r8, 16(sp)
-stw r9, 20(sp)
-stw r10, 24(sp)
-stw r11, 28(sp)
-stw r12, 32(sp)
-stw r13, 36(sp)
-stw r14, 40(sp)
-stw r15, 44(sp)
-stw r16, 48(sp)
-stw r17, 52(sp)
-stw r18, 56(sp)
-stw r19, 60(sp)
-stw r20, 64(sp)
-stw r21, 68(sp)
-stw r22, 72(sp)
-stw r23, 76(sp)
-stw ra, 80(sp)
-
-ldw r4, 0(sp)
-ldw r5, 4(sp)
-ldw r6, 8(sp)
-ldw r7, 12(sp)
-ldw r8, 16(sp)
-ldw r9, 20(sp)
-ldw r10, 24(sp)
-ldw r11, 28(sp)
-ldw r12, 32(sp)
-ldw r13, 36(sp)
-ldw r14, 40(sp)
-ldw r15, 44(sp)
-ldw r16, 48(sp)
-ldw r17, 52(sp)
-ldw r18, 56(sp)
-ldw r19, 60(sp)
-ldw r20, 64(sp)
-ldw r21, 68(sp)
-ldw r22, 72(sp)
-ldw r23, 76(sp)
-ldw ra, 80(sp)
-addi sp, sp, 84
- */
-
-/*
-addi sp, sp, -56
-stw r4, 0(sp)
-stw r5, 4(sp)
-stw r6, 8(sp)
-stw r7, 12(sp)
-stw r8, 16(sp)
-stw r9, 20(sp)
-stw r10, 24(sp)
-stw r11, 28(sp)
-stw r12, 32(sp)
-stw r20, 36(sp)
-stw r21, 40(sp)
-stw r22, 44(sp)
-stw r23, 48(sp)
-stw ra, 52(sp)
-
-ldw r4, 0(sp)
-ldw r5, 4(sp)
-ldw r6, 8(sp)
-ldw r7, 12(sp)
-ldw r8, 16(sp)
-ldw r9, 20(sp)
-ldw r10, 24(sp)
-ldw r11, 28(sp)
-ldw r12, 32(sp)
-ldw r20, 36(sp)
-ldw r21, 40(sp)
-ldw r22, 44(sp)
-ldw r23, 48(sp)
-ldw ra, 52(sp)
-addi sp, sp, 56
+ For a template of saving/restoring registers r8-r23, ra, see os_fork
  */
 
 .global seog_ti_os
@@ -163,6 +85,16 @@ addi sp, sp, 56
 .equ PROCESS_REGISTERS_BYTES 16384
 .equ PROCESS_STACKS_BYTES 524288
 .equ PROCESS_TABLE_ENTRY_BYTES 16
+
+.equ JTAG_UART 0x10001000
+.equ JTAG_UART_DATA 0
+.equ JTAG_UART_CTRL 4
+.equ TIMER 0x10002000
+.equ TIMER_STATUS 0
+.equ TIMER_CTRL 4
+.equ TIMER_PERIOD_L 8
+.equ TIMER_PERIOD_H 12
+.equ CYCLES_PER_HUNDRED_MILLISECONDS 5000000
 
 /* DATA */
 .data
@@ -204,15 +136,82 @@ FOO:
 /* INTERRUPTS */
 .section .exceptions, "ax"
 ISR:
+	// TODO: save registers
+
+	// check for timer
+	rdctl et, ctl4
+	andi et, et, 1
+	bne et, r0, ISR_HANDLE_TIMER
+
+	// check for jtag uart
+	rdctl et, ctl4
+	andi et, et, 0x10 // bit 8
+	bne et, r0, ISR_HANDLE_JTAG_UART
+
+ISR_HANDLE_TIMER:
+	call interrupt_handle_timer
+	br ISR_EPILOGUE
+
+ISR_HANDLE_JTAG_UART:
+	call interrupt_jtag_uart
+	br ISR_EPILOGUE
+
+ISR_EPILOGUE:
 	addi sp, sp, -4
 	eret
 
 /* TEXT */
 .text
+interrupt_handle_timer:
+	// TODO: handle sleeping processes
+	// TODO: handle switch process
+	ret
+
+interrupt_handle_jtag_uart:
+	addi sp, sp, -0
+
+	movia r8, JTAG_UART
+	ldwio r9, JTAG_UART_CTRL(r8)
+	andi r10, r9, 0x10 // bit 8, read interrupt pending
+	bne r10, r0, interrupt_handle_jtag_uart_read
+	br interrupt_handle_jtag_uart_write
+
+interrupt_handle_jtag_uart_read:
+	br interrupt_handle_jtag_uart_epilogue
+
+interrupt_handle_jtag_uart_write:
+	br interrupt_handle_jtag_uart_epilogue
+
+interrupt_handle_jtag_uart_epilogue:
+	addi sp, sp, 0
+	ret
+
 /* main */
 seog_ti_os:
 	// stack starts at highest address
 	movi sp, -1
+
+	// enable timer interrupts
+	movia r8, TIMER
+	movi r9, %hi(CYCLES_PER_HUNDRED_MILLISECONDS)
+	stwio r9, TIMER_PERIOD_H(r8)
+	movi r9, %lo(CYCLES_PER_HUNDRED_MILLISECONDS)
+	stwio r9, TIMER_PERIOD_L(r8)
+	movi r9, 0x07 // bits 2, 1, 0 (start, continue, enable interrupt)
+	stwio r9, TIMER_CTRL(r8)
+
+	// enable jtag uart interrupts
+	movia r8, JTAG_UART
+	movi r9, 0x3 // write interrupt, read interrupt bits
+	stwio r9, JTAG_UART_CTRL(r8)
+
+	// enable irq interrupts
+	movi r8, 0x11 // bit 8, 0
+	wrctl ctl3, r8
+
+	// enable global interrupts
+	movi r8, 1
+	wrctl ctl0, r8
 
 	// root dir
 	mov r4, r0
