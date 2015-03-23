@@ -201,6 +201,31 @@ seog_ti_os:
  * @param pointer to string name
  */
 os_touch:
+	addi sp, sp, -8
+	stw r6, 0(sp)
+	stw ra, 4(sp)
+	// set file bit
+	movi r6, 1
+	call os_falloc
+	ldw r6, 0(sp)
+	ldw ra, 4(sp)
+	addi sp, sp, 8
+	ret
+
+/*
+ * @param node id of parent folder
+ * @param pointer to string name
+ */
+os_mkdir:
+	addi sp, sp, -8
+	stw r6, 0(sp)
+	stw ra, 4(sp)
+	// set directory bit
+	mov r6, r0
+	call os_falloc
+	ldw r6, 0(sp)
+	ldw ra, 4(sp)
+	addi sp, sp, 8
 	ret
 
 /*
@@ -211,19 +236,21 @@ os_touch:
  * r12: temporary register (block id in node structure, others)
  * @param node id of parent folder
  * @param pointer to string name
+ * @param 0 for dir, 1 for file
  */
-os_mkdir:
-	addi sp, sp, -40
+os_falloc:
+	addi sp, sp, -44
 	stw r4, 0(sp)
 	stw r5, 4(sp)
-	stw r8, 8(sp)
-	stw r9, 12(sp)
-	stw r10, 16(sp)
-	stw r11, 20(sp)
-	stw r12, 24(sp)
-	stw r22, 28(sp)
-	stw r23, 32(sp)
-	stw ra, 36(sp)
+	stw r6, 8(sp)
+	stw r8, 12(sp)
+	stw r9, 16(sp)
+	stw r10, 20(sp)
+	stw r11, 24(sp)
+	stw r12, 28(sp)
+	stw r22, 32(sp)
+	stw r23, 36(sp)
+	stw ra, 40(sp)
 
 	movia r22, ROMANIA_NODES
 	movia r23, ROMANIA_BLOCKS
@@ -238,8 +265,12 @@ os_mkdir:
 	// upper 4 bits of block id
 	srli r12, r10, 8
 	slli r12, r12, 4
-	// lower bits 01 - directory, in use
-	ori r12, r12, 0xf1
+	// directory or file bit
+	slli r6, r6, 1
+	// directory or file bit, in use bit
+	ori r6, r6, 0xf1
+	// set lower bits
+	or r12, r12, r6
 	mov r12, 0x1
 
 	stb r12, 0(r9)
@@ -264,14 +295,15 @@ os_mkdir_bad_name:
 os_mkdir_epilogue:
 	ldw r4, 0(sp)
 	ldw r5, 4(sp)
-	ldw r8, 8(sp)
-	ldw r9, 12(sp)
-	ldw r10, 16(sp)
-	ldw r11, 20(sp)
-	ldw r12, 24(sp)
-	ldw r22, 28(sp)
-	ldw r23, 32(sp)
-	ldw ra, 36(sp)
+	ldw r6, 8(sp)
+	ldw r8, 12(sp)
+	ldw r9, 16(sp)
+	ldw r10, 20(sp)
+	ldw r11, 24(sp)
+	ldw r12, 28(sp)
+	ldw r22, 32(sp)
+	ldw r23, 36(sp)
+	ldw ra, 40(sp)
 	addi sp, sp, 40
 	ret
 
@@ -1016,22 +1048,15 @@ os_vechs_normalize_epilogue:
 	add sp, sp, 28
 	ret
 
-/* rational */
-os_rational_new:
-	ret
-
-os_vechs_normalize:
-	ret
-
-os_rational_delete:
-	ret
-
 /* skye */
 os_skye:
 	ret
 
 /* strings */
 /*
+ * r4: pointer to src char
+ * r5: pointer to dest char
+ * r8: loaded char
  * @param from address
  * @param to address
  */
@@ -1057,6 +1082,8 @@ os_strcpy_epilogue:
 	ret
 
 /*
+ * r4: pointer to str
+ * r8: loaded char
  * @param str
  */
 os_strlen:
@@ -1077,6 +1104,10 @@ os_strlen_epilogue:
 	ldw r4, 0(sp)
 	ldw r8, 4(sp)
 	addi sp, sp, 8
+	ret
+
+/* hmmm */
+os_putchar:
 	ret
 
 have_fun_looping:
