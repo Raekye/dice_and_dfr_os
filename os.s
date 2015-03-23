@@ -7,6 +7,7 @@
  * TODO: fork pre-increments process num
  * TODO: can load into same register? (e.g. ldw r2, 0(r2))
  * TODO: system call disable interrupts
+ * TODO: handle no processes in scheduler?
  *
  * ## Conventions
  * - Most registers are callee-saved; I find this easier to work with
@@ -56,13 +57,15 @@
  *   - bytes 0-3: process ID
  *   - bytes 4-7: pc
  *   - bytes 8-11: stack offset
- *   - byte 12: state - 0 for dead/unused, 1 for running, 2 for waiting
+ *   - byte 12: state - 0 for dead/unused, 1 for running, 2 for sleeping, 3 for waiting IO
  * - each process has
  *   - saved registers for context switching (total 128 processes * 32 registers * 4 bytes)
  *   - dedicated stack area (total 128 processes * 4096 byte stack)
  * - additional data
  *   - 1 byte: executing process ID
  *   - 1 byte: foreground process ID (which proccess has the terminal, receives stdin)
+ *   - 128 process table entries * 4 bytes: sleep time remaining for processes
+ *   - 32 registers * 4 bytes: temporary register save
  *
  * ## Dynamic memory
  * - heap block with 4 byte header + `n` bytes data
@@ -85,6 +88,8 @@
 .equ PROCESS_REGISTERS_BYTES 16384
 .equ PROCESS_STACKS_BYTES 524288
 .equ PROCESS_TABLE_ENTRY_BYTES 16
+.equ PROCESS_SLEEPING_BYTES 512
+.equ PROCESS_REGISTER_TMP_BYTES 128
 
 .equ JTAG_UART 0x10001000
 .equ JTAG_UART_DATA 0
@@ -126,6 +131,12 @@ PROCESS_FOREGROUND:
 
 PROCESS_NUM:
 	.word 1
+
+PROCESS_SLEEPING:
+	.skip PROCESS_SLEEPING_BYTES
+
+PROCESS_REGISTERS_TMP:
+	.skip PROCESS_REGISTERS_TMP_BYTES
 
 EPSILON:
 	.string ""
@@ -1012,6 +1023,65 @@ os_mort:
 	ret
 
 os_sleep:
+	ret
+
+/*
+ * Decrements sleep time remaining of all processes, if nonzero, and normalizes to 0
+ * If 0, update sleeping processes to running
+ */
+os_tick:
+	ret
+
+/*
+ * Cycles through process table and switches to another process
+ * Starts looking in the process table at the current process table index + 1
+ */
+os_schedule:
+	addi sp, sp, -0
+
+	movia r23, PROCESS_TABLE
+	movi r22, 1
+
+	call os_process_current
+	mov r4, r2
+	call os_process_table_index
+	mov r8, r2
+	addi r8, r8, 1
+	mov r9, r8
+	mov r10, r23
+
+os_schedule_find_process:
+	// NOTE: implementation detail
+	//       because there are 128 entries in the process table
+	//       and 128 is a power of 2, we can simulate mod (remainder) with a bitwise and
+	andi r9, r9, 128
+	// index * size
+	mulli r12, r9, 16
+	// base + offset
+	add r10, r23, r12
+	// checked all entries
+	beq r9, r8, os_schedule_no_running_processes
+	// load status byte
+	ldb r11, 12(r10)
+	// if status byte is 1
+	beq r11, r22, os_schedule_found_running_process
+	// then increment counter
+	addi r9, r9, 1
+	// loop
+	br os_schedule_found_running_process
+
+os_schedule_found_running_process:
+	// TODO: save registers
+	// TODO: restore registers
+	// set PC
+	br os_schedule_epilogue
+
+os_schedule_no_running_processes:
+	// TODO: hmmm
+	br os_schedule_epilogue
+
+os_schedule_epilogue:
+	addi sp, sp, 0
 	ret
 
 /* dynamic memory */
