@@ -99,7 +99,7 @@
 .equ PROCESS_STACKS_BYTES, 524288
 .equ PROCESS_TABLE_ENTRY_BYTES, 16
 .equ PROCESS_SLEEPING_BYTES, 512
-.equ PROCESS_REGISTER_TMP_BYTES, 128
+.equ PROCESS_REGISTERS_TMP_BYTES, 128
 
 .equ JTAG_UART, 0x10001000
 .equ JTAG_UART_DATA, 0
@@ -157,10 +157,11 @@ FOO:
 /* INTERRUPTS */
 .section .exceptions, "ax"
 ISR:
-	// fix pc
+	# fix pc
 	addi ea, ea, -4
+	eret
 
-	// save registers
+	# save registers
 	movia et, PROCESS_REGISTERS_TMP
 	stw r1, 4(et)
 	stw r2, 8(et)
@@ -185,7 +186,7 @@ ISR:
 	stw r21, 84(et)
 	stw r22, 88(et)
 	stw r23, 92(et)
-	// NOTE: saving `et` is superfluous
+	# NOTE: saving `et` is superfluous
 	stw r24, 96(et)
 	stw r25, 100(et)
 	stw r26, 104(et)
@@ -195,14 +196,14 @@ ISR:
 	stw r30, 120(et)
 	stw r31, 124(et)
 
-	// check for timer
+	# check for timer
 	rdctl et, ctl4
 	andi et, et, 1
 	bne et, r0, ISR_HANDLE_TIMER
 
-	// check for jtag uart
+	# check for jtag uart
 	rdctl et, ctl4
-	andi et, et, 0x10 // bit 8
+	andi et, et, 0x10 # bit 8
 	bne et, r0, ISR_HANDLE_JTAG_UART
 
 ISR_HANDLE_TIMER:
@@ -210,7 +211,7 @@ ISR_HANDLE_TIMER:
 	br ISR_EPILOGUE
 
 ISR_HANDLE_JTAG_UART:
-	call interrupt_jtag_uart
+	call interrupt_handle_jtag_uart
 	br ISR_EPILOGUE
 
 ISR_EPILOGUE:
@@ -238,7 +239,7 @@ ISR_EPILOGUE:
 	ldw r21, 84(et)
 	ldw r22, 88(et)
 	ldw r23, 92(et)
-	// NOTE: restoring `et` is superfluous
+	# NOTE: restoring `et` is superfluous
 	ldw r24, 96(et)
 	ldw r25, 100(et)
 	ldw r26, 104(et)
@@ -252,8 +253,8 @@ ISR_EPILOGUE:
 /* TEXT */
 .text
 interrupt_handle_timer:
-	// TODO: handle sleeping processes
-	// TODO: handle switch process
+	# TODO: handle sleeping processes
+	# TODO: handle switch process
 	ret
 
 interrupt_handle_jtag_uart:
@@ -261,7 +262,7 @@ interrupt_handle_jtag_uart:
 
 	movia r8, JTAG_UART
 	ldwio r9, JTAG_UART_CTRL(r8)
-	andi r15, r9, 0x10 // bit 8, read interrupt pending
+	andi r15, r9, 0x10 # bit 8, read interrupt pending
 	bne r15, r0, interrupt_handle_jtag_uart_read
 	br interrupt_handle_jtag_uart_write
 
@@ -277,39 +278,59 @@ interrupt_handle_jtag_uart_epilogue:
 
 /* main */
 seog_ti_os:
-	// stack starts at highest address
-	movi sp, -1
+	movia sp, 0x007FFFFC
 
-	// enable timer interrupts
+	# enable timer interrupts
 	movia r8, TIMER
 	movi r9, %hi(CYCLES_PER_HUNDRED_MILLISECONDS)
 	stwio r9, TIMER_PERIOD_H(r8)
 	movi r9, %lo(CYCLES_PER_HUNDRED_MILLISECONDS)
 	stwio r9, TIMER_PERIOD_L(r8)
-	movi r9, 0x07 // bits 2, 1, 0 (start, continue, enable interrupt)
+	movi r9, 0x07 # bits 2, 1, 0 (start, continue, enable interrupt)
 	stwio r9, TIMER_CTRL(r8)
 
-	// enable jtag uart interrupts
+	# enable jtag uart interrupts
 	movia r8, JTAG_UART
-	movi r9, 0x3 // write interrupt, read interrupt bits
+	movi r9, 0x3 # write interrupt, read interrupt bits
 	stwio r9, JTAG_UART_CTRL(r8)
 
-	// enable irq interrupts
-	movi r8, 0x11 // bit 8, 0
+	# enable irq interrupts
+	movi r8, 0x11 # bit 8, 0
 	wrctl ctl3, r8
 
-	// enable global interrupts
+	# enable global interrupts
 	movi r8, 1
 	wrctl ctl0, r8
 
-	// root dir
+	# root dir
 	mov r4, r0
 	movia r5, EPSILON
 	call os_mkdir
 
-	// foo
+	# foo
 	movia r5, FOO
-	call os_kdir
+	call os_mkdir
+
+	movia r8, PROCESS_TABLE
+	movia r10, PROCESS_STACKS
+	movia r23, PROCESS_STACKS_BYTES
+	add r10, r10, r23
+	# shell process
+
+	# empty process
+	addi r8, r8, 16
+	add r10, r10, r23
+	# process id
+	movi r9, 1
+	stw r9, 0(r8)
+	# pc
+	movia r9, have_fun_looping
+	stw r9, 4(r8)
+	# stack offset
+	stw r10, 8(r8)
+	# status byte
+	movi r9, 1
+	stw r9, 12(r8)
 
 	br have_fun_looping
 
@@ -322,7 +343,7 @@ os_touch:
 	addi sp, sp, -8
 	stw r6, 0(sp)
 	stw ra, 4(sp)
-	// set file bit
+	# set file bit
 	movi r6, 1
 	call os_falloc
 	ldw r6, 0(sp)
@@ -338,7 +359,7 @@ os_mkdir:
 	addi sp, sp, -8
 	stw r6, 0(sp)
 	stw ra, 4(sp)
-	// set directory bit
+	# set directory bit
 	mov r6, r0
 	call os_falloc
 	ldw r6, 0(sp)
@@ -380,16 +401,15 @@ os_falloc:
 	mov r15, r2
 	add r11, r15, r23
 
-	// upper 4 bits of block id
+	# upper 4 bits of block id
 	srli r12, r15, 8
 	slli r12, r12, 4
-	// directory or file bit
+	# directory or file bit
 	slli r6, r6, 1
-	// directory or file bit, in use bit
+	# directory or file bit, in use bit
 	ori r6, r6, 0xf1
-	// set lower bits
+	# set lower bits
 	or r12, r12, r6
-	mov r12, 0x1
 
 	stb r12, 0(r9)
 	stb r15, 1(r9)
@@ -398,16 +418,16 @@ os_falloc:
 	call os_strlen
 	movi r12, 13
 	bgt r2, r12, os_mkdir_bad_name
-	// then valid name
-	// r5 = node address + name offset
+	# then valid name
+	# r5 = node address + name offset
 	addi r5, r9, 2
 	call os_strcpy
-	// TODO: null terminate
+	# TODO: null terminate
 	mov r2, r8
 	br os_mkdir_epilogue
 
 os_mkdir_bad_name:
-	// TODO: handle
+	# TODO: handle
 	br os_mkdir_epilogue
 
 os_mkdir_epilogue:
@@ -437,10 +457,10 @@ os_rm:
 	stw ra, 8(sp)
 
 	movia r22, ROMANIA_NODES
-	// r8 = offset + index
+	# r8 = offset + index
 	add r8, r22, r4
 	ldb r9, 0(r8)
-	// get second bit, directory or file
+	# get second bit, directory or file
 	andi r9, r9, 0x2
 	beq r9, r0, os_rm_handle_dir
 	br os_rm_handle_file
@@ -494,10 +514,10 @@ os_rm_dir:
 	stw r9, 12(sp)
 	stw ra, 16(sp)
 
-	// get block id
+	# get block id
 	call os_romania_block_from_node
 	mov r4, r2
-	// get block contents
+	# get block contents
 	call os_romania_read_block_chain
 	mov r8, r2
 	mov r4, r8
@@ -510,7 +530,7 @@ os_rm_dir_loop:
 	call os_vechs_get
 	mov r4, r2
 	call os_rm
-	// reset r4 to vechs
+	# reset r4 to vechs
 	mov r4, r8
 	addi r5, r5, 1
 	br os_rm_dir_loop
@@ -554,10 +574,10 @@ os_romania_read_block_chain:
 	movia r22, ROMANIA_BLOCKS
 
 os_romania_read_block_chain_handle_block:
-	// r9 = offset + index
+	# r9 = offset + index
 	add r9, r22, r4
 
-	// read length
+	# read length
 	ldb r15, 1(r9)
 	addi r11, r9, 3
 	mov r12, r0
@@ -601,15 +621,15 @@ os_romania_block_from_node:
 	stw r22, 12(sp)
 
 	movia r22, ROMANIA_NODES
-	// r8 = offset + index
+	# r8 = offset + index
 	add r8, r22, r4
-	// load byte 0
+	# load byte 0
 	ldb r9, 0(r8)
-	// load byte 1
+	# load byte 1
 	ldb r15, 1(r8)
-	// get upper bits of byte 0, the upper 4 bits of block id
+	# get upper bits of byte 0, the upper 4 bits of block id
 	andi r9, r9, 0xf0
-	// shift upper 4 bits of block id
+	# shift upper 4 bits of block id
 	slli r15, r10, 8
 	or r2, r9, r15
 
@@ -638,19 +658,19 @@ os_romania_allocate_node:
 	stw r22, 4(sp)
 	stw r23, 8(sp)
 
-	// initialize
+	# initialize
 	mov r2, r0
 	movia r22, ROMANIA_NODES
 	movia r23, ROMANIA_NODES_BYTES
 
 os_romania_allocate_node_loop:
-	// r8 = index + offset
+	# r8 = index + offset
 	add r8, r2, r22
-	// read first byte of a node
+	# read first byte of a node
 	ldb r15, 0(r8)
-	// if 0, found block
+	# if 0, found block
 	beq r15, r0, os_romania_allocate_node_epilogue
-	// then non-zero, skip over node
+	# then non-zero, skip over node
 	addi r2, r2, 16
 	br os_romania_allocate_node_loop
 
@@ -672,26 +692,26 @@ os_romania_allocate_block:
 	stw r22, 4(sp)
 	stw r23, 8(sp)
 
-	// initialize
+	# initialize
 	mov r2, r0
 	movia r22, ROMANIA_BLOCKS
 	movia r23, ROMANIA_BLOCKS_BYTES
 
 os_romania_allocate_block_loop:
-	// r8 = index + offset
+	# r8 = index + offset
 	add r8, r2, r22
-	// read first byte of a block
+	# read first byte of a block
 	ldb r15, 0(r8)
-	// if 0, found block
+	# if 0, found block
 	beq r15, r0, os_romania_allocate_block_found
-	// then non-zero, skip over block
+	# then non-zero, skip over block
 	addi r2, r2, 256
 	br os_romania_allocate_block_loop
 
 os_romania_allocate_block_found:
-	// NOTE: r23 nolonger needed, used as temporary register
+	# NOTE: r23 nolonger needed, used as temporary register
 	movi r23, 1
-	// mark block as used
+	# mark block as used
 	stb r23, 0(r8)
 	br os_romania_allocate_block_epilogue
 
@@ -715,8 +735,8 @@ os_romania_free_block_chain:
 	stw r22, 8(sp)
 	stw ra, 12(sp)
 
-	mov r22, ROMANIA_BLOCKS
-	// r8 = offset + index
+	movia r22, ROMANIA_BLOCKS
+	# r8 = offset + index
 	add r8, r22, r4
 
 	ldb r4, 2(r8)
@@ -750,9 +770,9 @@ os_romania_free_node:
 
 os_romania_free_node_loop:
 	beq r8, r15, os_romania_free_node_epilogue
-	// r9 points to a byte in the node we are zeroing
+	# r9 points to a byte in the node we are zeroing
 	add r9, r4, r8
-	// zero byte
+	# zero byte
 	stb r0, 0(r9)
 	addi r8, r8, 1
 	br os_romania_free_node_loop
@@ -780,9 +800,9 @@ os_romania_free_block:
 
 os_romania_free_block_loop:
 	beq r8, r15, os_romania_free_block_epilogue
-	// r9 points to a byte in the block we are zeroing
+	# r9 points to a byte in the block we are zeroing
 	add r9, r4, r8
-	// zero byte
+	# zero byte
 	stb r0, 0(r9)
 	addi r8, r8, 1
 	br os_romania_free_block_loop
@@ -827,21 +847,21 @@ os_process_table_index:
 	stw r23, 16(sp)
 
 	movia r23, PROCESS_TABLE
-	movia r22, PROCESS_MAX
+	movia r22, PROCESS_TABLE_MAX
 	mov r8, r0
 	mov r9, r23
 
 os_process_table_index_find_entry:
-	// bounds check
+	# bounds check
 	beq r8, r22, os_process_table_index_unfound_entry
-	// load process id
+	# load process id
 	ldw r15, 0(r9)
-	// if equals argument
+	# if equals argument
 	beq r15, r4, os_process_table_index_found_entry
-	// then not equal, increment counter, increment address/pointer
+	# then not equal, increment counter, increment address/pointer
 	addi r8, r8, 1
 	addi r9, r9, 16
-	// loop
+	# loop
 	br os_process_table_index_find_entry
 
 os_process_table_index_found_entry:
@@ -871,11 +891,11 @@ os_process_table_entry:
 	stw ra, 4(sp)
 
 	movia r23, PROCESS_TABLE
-	// get index
+	# get index
 	call os_process_table_index
-	// index * size
-	mulli r2, r2, 16
-	// base address + offset
+	# index * size
+	muli r2, r2, 16
+	# base address + offset
 	add r2, r23, r2
 
 	ldw r23, 0(sp)
@@ -898,19 +918,19 @@ os_process_duplicate_stack:
 	stw ra, 12(sp)
 
 	movia r23, PROCESS_TABLE
-	// get parent process stack offset
+	# get parent process stack offset
 	call os_process_stack_offset
-	// set first argument
+	# set first argument
 	mov r4, r2
-	// stack grows downward, point to end
+	# set third argument
+	movia r6, PROCESS_STACKS_BYTES
+	# stack grows downward, point to end
 	addi r5, r5, 1
-	// offset = index * size
-	muli r5, r5, 16
-	// address = base + offset
+	# offset = index * size
+	mul r5, r5, r6
+	# address = base + offset
 	add r5, r23, r5
-	// set third argument
-	movia r6, PROCESS_TABLE_ENTRY_BYTES
-	// memcpy
+	# memcpy
 	call os_memcpy
 
 	ldw r4, 0(sp)
@@ -976,60 +996,60 @@ os_fork:
 	mov r9, r0
 	mov r15, r22
 
-	// load process num
+	# load process num
 	ldw r8, 0(r23)
 
 os_fork_find_empty_entry:
-	// check for max processes
+	# check for max processes
 	beq r9, r21, os_fork_out_of_processes
-	// read process status
+	# read process status
 	ldb r11, 12(r15)
-	// if 0, then empty entry
+	# if 0, then empty entry
 	beq r11, r0, os_fork_found_empty_entry
-	// then look at next entry
+	# then look at next entry
 	addi r9, r9, 1
 	addi r15, r10, 16
 	br os_fork_find_empty_entry
 
 os_fork_found_empty_entry:
-	// increment process num
+	# increment process num
 	addi r8, r8, 1
-	// save process num
+	# save process num
 	stw r8, 0(r23)
 
-	// duplicate stack
+	# duplicate stack
 	call os_process_current
-	// set first argument
+	# set first argument
 	mov r4, r2
-	// set second argument
+	# set second argument
 	mov r5, r9
 	call os_process_duplicate_stack
 
-	// add new entry for child process
-	// set process id
+	# add new entry for child process
+	# set process id
 	stw r8, 0(r15)
-	// pc set below
-	// set stack pointer
-	// point to top
+	# pc set below
+	# set stack pointer
+	# point to top
 	addi r13, r9, 1
-	// index * size
+	# index * size
 	muli r13, r13, 16
-	// base + offset
+	# base + offset
 	add r13, r19, r13
-	// save stack pointer
+	# save stack pointer
 	stw r13, 8(r15)
-	// set status running
-	// r2 used as temporary register
+	# set status running
+	# r2 used as temporary register
 	movi r2, 1
 	stb r2, 12(sp)
 
-	// save registers for child process
-	// offset into registers
+	# save registers for child process
+	# offset into registers
 	muli r12, r9, 32
-	// address = base address + offset
-	addi r12, r20, r12
+	# address = base address + offset
+	add r12, r20, r12
 
-	// save registers, except skip r0, r2 <- r0 for child
+	# save registers, except skip r0, r2 <- r0 for child
 	stw r1, 4(r12)
 	stw r0, 8(r12)
 	stw r3, 12(r12)
@@ -1053,7 +1073,7 @@ os_fork_found_empty_entry:
 	stw r21, 84(r12)
 	stw r22, 88(r12)
 	stw r23, 92(r12)
-	// NOTE: saving `et` is superfluous
+	# NOTE: saving `et` is superfluous
 	stw r24, 96(r12)
 	stw r25, 100(r12)
 	stw r26, 104(r12)
@@ -1063,8 +1083,8 @@ os_fork_found_empty_entry:
 	stw r30, 120(r12)
 	stw r31, 124(r12)
 
-	// when the os switches to the child, it will reload the registers, and continue executing (re-execute next instruction, harmless re-write)
-	// it will have reloaded 0 as the return value, and return from fork
+	# when the os switches to the child, it will reload the registers, and continue executing (re-execute next instruction, harmless re-write)
+	# it will have reloaded 0 as the return value, and return from fork
 	nextpc r14
 	stw r14, 4(r15)
 
@@ -1171,44 +1191,44 @@ os_schedule:
 	mov r14, r2
 
 os_schedule_find_process:
-	// NOTE: implementation detail
-	//       because there are 128 entries in the process table
-	//       and 128 is a power of 2, we can simulate mod (remainder) with a bitwise and with 127
+	# NOTE: implementation detail
+	#       because there are 128 entries in the process table
+	#       and 128 is a power of 2, we can simulate mod (remainder) with a bitwise and with 127
 	andi r9, r9, 127
-	// index * size
+	# index * size
 	muli r12, r9, 16
-	// base + offset
+	# base + offset
 	add r15, r23, r12
-	// checked all entries
+	# checked all entries
 	beq r9, r8, os_schedule_no_running_processes
-	// load status byte
+	# load status byte
 	ldb r11, 12(r15)
-	// if status byte is 1
+	# if status byte is 1
 	beq r11, r22, os_schedule_found_running_process
-	// then increment counter
+	# then increment counter
 	addi r9, r9, 1
-	// loop
+	# loop
 	br os_schedule_found_running_process
 
 os_schedule_found_running_process:
-	// offset = index * size
+	# offset = index * size
 	muli r12, r14, 16
-	// address = base + offset
+	# address = base + offset
 	add r16, r23, r12
-	// save current process pc in process table
+	# save current process pc in process table
 	stw ea, 4(r16)
 
-	// load next process pc from process table
+	# load next process pc from process table
 	ldw ea, 4(r10)
 
-	// 32 registers * 4 bytes
+	# 32 registers * 4 bytes
 	muli r12, r14, 128
-	// address = base + offset
+	# address = base + offset
 	add r15, r21, r12
 
 	movia et, PROCESS_REGISTERS_TMP
 
-	// copy current process' registers, saved in process registers tmp, to its entry in process registers
+	# copy current process' registers, saved in process registers tmp, to its entry in process registers
 	ldw r13, 4(et)
 	stw r13, 4(r15)
 	ldw r13, 8(et)
@@ -1272,15 +1292,15 @@ os_schedule_found_running_process:
 	ldw r13, 124(et)
 	stw r13, 124(r15)
 
-	// 32 registers * 4 bytes
+	# 32 registers * 4 bytes
 	muli r12, r9, 128
-	// address = base + offset
+	# address = base + offset
 	add et, r21, r12
 
 	movia r15, PROCESS_REGISTERS_TMP
 
-	// copy next process' registers to process registers tmp
-	// the ldw/stw code is the same as above; et and r15 are switched
+	# copy next process' registers to process registers tmp
+	# the ldw/stw code is the same as above; et and r15 are switched
 	ldw r13, 4(et)
 	stw r13, 4(r15)
 	ldw r13, 8(et)
@@ -1347,7 +1367,7 @@ os_schedule_found_running_process:
 	br os_schedule_epilogue
 
 os_schedule_no_running_processes:
-	// TODO: hmmm
+	# TODO: hmmm
 	br os_schedule_epilogue
 
 os_schedule_epilogue:
@@ -1377,96 +1397,99 @@ os_schedule_epilogue:
  * r9: address in heap (index + heap offset)
  * r10: loaded value from heap
  * r11: counter for free space
+ * r20: -4
  * r21: heap end
  * r22: heap offset
  * r23: heap bytes
  * @param n
  */
 os_malloc:
-	addi sp, sp, -36
+	addi sp, sp, -40
 	stw r4, 0(sp)
 	stw r8, 4(sp)
 	stw r9, 8(sp)
 	stw r10, 12(sp)
 	stw r11, 16(sp)
 	stw r12, 20(sp)
-	stw r21, 24(sp)
-	stw r22, 28(sp)
-	stw r23, 32(sp)
+	stw r10, 24(sp)
+	stw r21, 28(sp)
+	stw r22, 32(sp)
+	stw r23, 36(sp)
 
-	// constraints
+	# constraints
 	ble r4, r0, os_malloc_oom
 
-	// initialize
+	# initialize
 	mov r8, r0
 	movia r22, HEAP
 	movia r23, HEAP_BYTES
 	add r21, r22, r23
+	movi r20, -4
 
-	// round size up to multiple of 4 bytes
-	// get lower 2 bits
+	# round size up to multiple of 4 bytes
+	# get lower 2 bits
 	andi r12, r4, 0x3
-	// invert bits
+	# invert bits
 	xori r12, r12, 0xff
-	// increment
+	# increment
 	addi r12, r12, 1
-	// grab lower 2 bits
+	# grab lower 2 bits
 	andi r12, r12, 0x3
-	// add
+	# add
 	add r4, r4, r12
 
 os_malloc_crawl_loop:
 	bge r8, r23, os_malloc_oom
-	// reset counter
+	# reset counter
 	mov r11, r0
-	// load header
+	# load header
 	add r9, r8, r22
 	ldw r10, 0(r9)
-	// skip over header bytes
+	# skip over header bytes
 	addi r8, r8, 4
-	// check block header
-	beq r10, r0 os_malloc_found_free_block
-	// found used block
-	// skip over allocated bytes
+	# check block header
+	beq r10, r0, os_malloc_found_free_block
+	# found used block
+	# skip over allocated bytes
 	add r8, r8, r10
-	// continue searching
+	# continue searching
 	br os_malloc_crawl_loop
 
 os_malloc_found_free_block:
-	// check oom
+	# check oom
 	beq r9, r21, os_malloc_oom
-	// increment counter
+	# increment counter
 	addi r11, r11, 1
-	// load heap
+	# load heap
 	ldb r10, 0(r9)
-	// increment heap pointer
+	# increment heap pointer
 	addi r9, r9, 1
-	// if not 0, we hit a block before we found enough space
+	# if not 0, we hit a block before we found enough space
 	bne r10, r0, os_malloc_found_insufficient_block
-	// then 0
-	// if found enough space
+	# then 0
+	# if found enough space
 	beq r11, r4, os_malloc_found_sufficient_block
-	// then 0, not enough space yet, keep searching
+	# then 0, not enough space yet, keep searching
 	br os_malloc_found_free_block
 
 os_malloc_found_insufficient_block:
-	// r8 + r11 at the last byte we loaded, which was non-zero, meaning it was the header/size of a block
+	# r8 + r11 at the last byte we loaded, which was non-zero, meaning it was the header/size of a block
 	add r8, r8, r11
-	// address of last byte we loaded
+	# address of last byte we loaded
 	add r9, r8, r22
-	// -4 in binary is all 1s with least significant two 0s
-	andi r9, r9, -4
-	// load header
+	# -4 in binary is all 1s with least significant two 0s
+	and r9, r9, r20
+	# load header
 	ldw r10, 0(r9)
-	// r8 + r11 + r10 skips the number of bytes in the block we hit
+	# r8 + r11 + r10 skips the number of bytes in the block we hit
 	add r8, r8, r10
-	// skip over header
+	# skip over header
 	addi r8, r8, 4
-	// continue searching
+	# continue searching
 	br os_malloc_crawl_loop
 
 os_malloc_found_sufficient_block:
-	// r8 + r22 at the first zero byte, which will be the header
+	# r8 + r22 at the first zero byte, which will be the header
 	add r9, r8, r22
 	stw r4, 0(r9)
 	br os_malloc_epilogue
@@ -1482,10 +1505,11 @@ os_malloc_epilogue:
 	ldw r10, 12(sp)
 	ldw r11, 16(sp)
 	ldw r12, 20(sp)
-	ldw r21, 24(sp)
-	ldw r22, 28(sp)
-	ldw r23, 32(sp)
-	addi sp, sp, 36
+	ldw r20, 24(sp)
+	ldw r21, 28(sp)
+	ldw r22, 32(sp)
+	ldw r23, 36(sp)
+	addi sp, sp, 40
 	ret
 
 /*
@@ -1500,9 +1524,9 @@ os_free:
 	stw r9, 4(sp)
 	stw r10, 8(sp)
 
-	// read header
+	# read header
 	ldw r8, -4(r4)
-	// zero header
+	# zero header
 	stw r0, -4(r4)
 	mov r9, r0
 	mov r10, r4
@@ -1533,18 +1557,18 @@ os_vechs_new:
 	stw r8, 4(sp)
 	stw ra, 8(sp)
 
-	// malloc structure
+	# malloc structure
 	movi r4, 12
 	call os_malloc
 	mov r8, r2
-	// malloc space for data
+	# malloc space for data
 	ldw r4, 0(sp)
 	call os_malloc
-	// set pointer
+	# set pointer
 	stw r2, 0(r8)
 	stw r4, 4(r8)
 	stw r0, 8(r8)
-	// return pointer to structure
+	# return pointer to structure
 	mov r2, r8
 
 os_vechs_new_epilogue:
@@ -1565,11 +1589,11 @@ os_vechs_delete:
 	stw r8, 4(sp)
 	stw ra, 8(sp)
 
-	// get pointer to data
+	# get pointer to data
 	ldw r8, 0(r4)
-	// free structure
+	# free structure
 	call os_free
-	// free data
+	# free data
 	mov r4, r8
 	call os_free
 
@@ -1577,7 +1601,7 @@ os_vechs_delete_epilogue:
 	ldw r4, 0(sp)
 	ldw r8, 4(sp)
 	ldw ra, 8(sp)
-	addi, sp, sp, 12
+	addi sp, sp, 12
 	ret
 
 /*
@@ -1619,15 +1643,15 @@ os_vechs_push:
 	stw r6, 0(sp)
 	stw ra, 4(sp)
 
-	// ensure capacity
+	# ensure capacity
 	call os_vechs_normalize
-	// get size
+	# get size
 	call os_vechs_size
-	// set top value
+	# set top value
 	mov r6, r5
 	mov r5, r2
 	call os_vechs_set
-	// update size
+	# update size
 	addi r2, r5, 1
 	stw r2, 8(r4)
 
@@ -1648,11 +1672,11 @@ os_vechs_pop:
 	stw ra, 4(sp)
 
 	call os_vechs_size
-	// calculate next size
+	# calculate next size
 	addi r5, r2, -1
-	// retrieve top value
+	# retrieve top value
 	call os_vechs_get
-	// update size
+	# update size
 	stw r5, 8(r4)
 
 os_vechs_pop_epilogue:
@@ -1680,28 +1704,28 @@ os_vechs_normalize:
 	stw r11, 20(sp)
 	stw ra, 24(sp)
 
-	// used size
+	# used size
 	call os_vechs_size
-	// allocated size
+	# allocated size
 	ldw r8, 4(r4)
-	// if used < allocated (should never be greater than), return
-	bne r2, r8 os_vechs_normalize_epilogue
-	// then used == allocated
-	// size prime
+	# if used < allocated (should never be greater than), return
+	bne r2, r8, os_vechs_normalize_epilogue
+	# then used == allocated
+	# size prime
 	addi r9, r8, 4
-	// array prime
+	# array prime
 	mov r4, r9
 	call os_malloc
 	mov r10, r2
-	// initialize counter
+	# initialize counter
 	mov r5, r0
-	// initialize pointer to array prime
+	# initialize pointer to array prime
 	mov r11, r10
-	// reset r4 to point to the vector structure
+	# reset r4 to point to the vector structure
 	ldw r4, 0(sp)
 
 os_vechs_normalize_copy_loop:
-	// if counter == num elements
+	# if counter == num elements
 	beq r5, r8, os_vechs_normalize_finalize
 	call os_vechs_get
 	stw r2, 0(r11)
@@ -1710,15 +1734,15 @@ os_vechs_normalize_copy_loop:
 	br os_vechs_normalize_copy_loop
 
 os_vechs_normalize_finalize:
-	// get pointer to old array
+	# get pointer to old array
 	ldw r4, 0(r4)
-	// free old array
+	# free old array
 	call os_free
-	// reset r4 to the vector structure
+	# reset r4 to the vector structure
 	ldw r4, 0(sp)
-	// set new array pointer
+	# set new array pointer
 	stw r10, 0(r4)
-	// update size allocated
+	# update size allocated
 	stw r9, 4(r4)
 	br os_vechs_normalize_epilogue
 
@@ -1730,7 +1754,7 @@ os_vechs_normalize_epilogue:
 	ldw r10, 16(sp)
 	ldw r11, 20(sp)
 	stw ra, 24(sp)
-	add sp, sp, 28
+	addi sp, sp, 28
 	ret
 
 /* skye */
@@ -1822,17 +1846,17 @@ os_memcpy:
 
 os_memcpy_loop:
 	beq r8, r6, os_memcpy_epilogue
-	// address = base + offset
+	# address = base + offset
 	add r9, r4, r8
-	// load byte
+	# load byte
 	ldb r10, 0(r9)
-	// address = base + offset
+	# address = base + offset
 	add r9, r5, r8
-	// store byte
+	# store byte
 	stb r10, 0(r9)
-	// increment
+	# increment
 	addi r8, r8, 1
-	// loop
+	# loop
 	br os_memcpy_loop
 
 os_memcpy_epilogue:
