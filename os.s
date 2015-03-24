@@ -101,6 +101,8 @@
 .equ PROCESS_SLEEPING_BYTES, 512
 .equ PROCESS_REGISTERS_TMP_BYTES, 128
 
+.equ LEDS_RED, 0x10000000
+.equ LEDS_GREEN, 0x10000010
 .equ JTAG_UART, 0x10001000
 .equ JTAG_UART_DATA, 0
 .equ JTAG_UART_CTRL, 4
@@ -207,6 +209,9 @@ ISR:
 	bne et, r0, ISR_HANDLE_JTAG_UART
 
 ISR_HANDLE_TIMER:
+	# clear status bit
+	movia et, TIMER
+	stwio r0, TIMER_STATUS(et)
 	call interrupt_handle_timer
 	br ISR_EPILOGUE
 
@@ -279,6 +284,23 @@ interrupt_handle_jtag_uart_epilogue:
 /* main */
 seog_ti_os:
 	movia sp, 0x007FFFFC
+
+	movia r8, LEDS_RED
+	movia r9, HEAP
+	stwio r9, 0(r8)
+
+	movi r4, 4
+	call os_malloc
+	call os_malloc
+	mov r10, r2
+	call os_malloc
+	mov r4, r10
+	call os_free
+	movi r4, 8
+	call os_malloc
+	stwio r2, 0(r8)
+
+	br have_fun_looping
 
 	# enable timer interrupts
 	movia r8, TIMER
@@ -1447,6 +1469,7 @@ os_malloc_crawl_loop:
 	ldw r10, 0(r9)
 	# skip over header bytes
 	addi r8, r8, 4
+	addi r9, r9, 4
 	# check block header
 	beq r10, r0, os_malloc_found_free_block
 	# found used block
@@ -1475,23 +1498,24 @@ os_malloc_found_free_block:
 os_malloc_found_insufficient_block:
 	# r8 + r11 at the last byte we loaded, which was non-zero, meaning it was the header/size of a block
 	add r8, r8, r11
-	# address of last byte we loaded
-	add r9, r8, r22
 	# -4 in binary is all 1s with least significant two 0s
-	and r9, r9, r20
+	and r8, r8, r20
+	# address of header
+	add r9, r8, r22
 	# load header
 	ldw r10, 0(r9)
-	# r8 + r11 + r10 skips the number of bytes in the block we hit
-	add r8, r8, r10
 	# skip over header
 	addi r8, r8, 4
+	# skips the number of bytes in the block we hit
+	add r8, r8, r10
 	# continue searching
 	br os_malloc_crawl_loop
 
 os_malloc_found_sufficient_block:
-	# r8 + r22 at the first zero byte, which will be the header
-	add r9, r8, r22
-	stw r4, 0(r9)
+	# r8 + r22 at the first data byte
+	add r2, r8, r22
+	# save header
+	stw r4, -4(r2)
 	br os_malloc_epilogue
 
 os_malloc_oom:
