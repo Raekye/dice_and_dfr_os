@@ -8,6 +8,9 @@
  * TODO: can load into same register? (e.g. ldw r2, 0(r2))
  * TODO: system call disable interrupts
  * TODO: handle no processes in scheduler?
+ * TODO: parent process ID
+ * TODO: modifying foreground process
+ * TODO: use PROCESS_TABLE_*(r*) instead of hardcoded values
  *
  * ## Conventions
  * - Most registers are callee-saved; I find this easier to work with
@@ -35,6 +38,8 @@
  * ## Readings
  * - http://www.linusakesson.net/programming/tty/
  * - https://github.com/Raekye/bdel_and_dfr_compiler/blob/master/stdlib.txt
+ * - http://www-ug.eecg.toronto.edu/msl/manuals/DE2_Media_Computer.pdf
+ * - http://www-ug.eecg.toronto.edu/msl/nios_devices/
  *
  * ## System calls
  * - `wrctl ctl0, r0`; at the beginning
@@ -67,6 +72,7 @@
  *   - bytes 4-7: pc
  *   - bytes 8-11: stack offset
  *   - byte 12: state - 0 for dead/unused, 1 for running, 2 for sleeping, 3 for waiting IO
+ *   - bytes 16-19: parent process id
  * - each process has
  *   - saved registers for context switching (total 128 processes * 32 registers * 4 bytes)
  *   - dedicated stack area (total 128 processes * 4096 byte stack)
@@ -76,6 +82,7 @@
  *   - 128 process table entries * 4 bytes: sleep time remaining for processes
  *   - 32 registers * 4 bytes: temporary register save
  *     - technically, `r0`, and `et` do not need to be saved, but there is space for them for consistency
+ *   - 128 process table entries * 1 byte: data to be written to output
  *
  * ## Dynamic memory
  * - heap block with 4 byte header + `n` bytes data
@@ -91,14 +98,27 @@
 .global seog_ti_os
 
 .equ HEAP_BYTES, 4096
+
 .equ ROMANIA_NODES_BYTES, 4096
 .equ ROMANIA_BLOCKS_BYTES, 252144
+
 .equ PROCESS_TABLE_MAX, 128
-.equ PROCESS_TABLE_BYTES, 2048
+.equ PROCESS_TABLE_ENTRY_BYTES, 20
+.equ PROCESS_TABLE_BYTES, 2560
+
+.equ PROCESS_TABLE_ID, 0
+.equ PROCESS_TABLE_PC, 4
+.equ PROCESS_TABLE_STACK, 8
+.equ PROCESS_TABLE_STATUS, 12
+.equ PROCESS_TABLE_PARENT, 16
+
 .equ PROCESS_REGISTERS_BYTES, 16384
+
 .equ PROCESS_STACKS_BYTES, 524288
-.equ PROCESS_TABLE_ENTRY_BYTES, 16
+
 .equ PROCESS_SLEEPING_BYTES, 512
+.equ PROCESS_IO_OUT_BYTES, 128
+
 .equ PROCESS_REGISTERS_TMP_BYTES, 128
 
 .equ LEDS_RED, 0x10000000
@@ -141,11 +161,19 @@ PROCESS_CURRENT:
 PROCESS_FOREGROUND:
 	.skip 4
 
+/*
+ * 0: Shell process
+ * 1: Bombadil process
+ * 2: badness!!!
+ */
 PROCESS_NUM:
-	.word 1
+	.word 2
 
 PROCESS_SLEEPING:
 	.skip PROCESS_SLEEPING_BYTES
+
+PROCESS_IO_OUT:
+	.skip PROCESS_IO_OUT_BYTES
 
 PROCESS_REGISTERS_TMP:
 	.skip PROCESS_REGISTERS_TMP_BYTES
@@ -337,9 +365,22 @@ seog_ti_os:
 	movia r10, PROCESS_STACKS
 	movia r23, PROCESS_STACKS_BYTES
 	add r10, r10, r23
-	# shell process
 
-	# empty process
+	# shell process
+	# process id
+	stw r0, 0(r8)
+	# pc
+	movia r9, os_bdel
+	stw r9, 4(r8)
+	# stack offset
+	stw r10, 8(r8)
+	# status byte
+	movi r9, 1
+	stw r9, 12(r8)
+	# parent id
+	stw r0, 16(r8)
+
+	# bombadil process
 	addi r8, r8, 16
 	add r10, r10, r23
 	# process id
@@ -353,6 +394,8 @@ seog_ti_os:
 	# status byte
 	movi r9, 1
 	stw r9, 12(r8)
+	# parent id
+	stw r0, 16(r8)
 
 	br have_fun_looping
 
@@ -1177,7 +1220,6 @@ os_tick:
  * r21: process registers
  * r22: 1
  * r23: process table
- * 
  */
 os_schedule:
 	addi sp, sp, -68
@@ -1710,6 +1752,113 @@ os_vechs_pop_epilogue:
 	ret
 
 /*
+ * r5: modified, index
+ * r6: modified
+ * r8: saved return value
+ * r9: size
+ * @param ptr
+ */
+os_vechs_shift:
+	addi sp, sp, -20
+	stw r5, 0(sp)
+	stw r6, 4(sp)
+	stw r8, 8(sp)
+	stw r9, 12(sp)
+	stw ra, 16(sp)
+
+	call os_vechs_size
+	mov r9, r2
+
+	# get head, save return value
+	mov r5, r0
+	call os_vechs_get
+	mov r8, r2
+
+	# r4 is the index of the element we are moving from
+	movi r5, 1
+
+os_vechs_shift_loop:
+	# while index < length
+	bge r5, r9, os_vechs_shift_epilogue
+	# get element
+	call os_vechs_get
+	# argument 3 for set
+	mov r6, r2
+	# argument 2 for set
+	addi r5, r5, -1
+	call os_vechs_set
+	# index = index + 1 (we subtracted 1 above)
+	addi r5, r5, 2
+	br os_vechs_shift_loop_done
+
+os_vechs_shift_loop_done:
+	# remove last element
+	call os_vechs_pop
+	mov r2, r8
+
+os_vechs_shift_epilogue:
+	ldw r5, 0(sp)
+	ldw r6, 4(sp)
+	ldw r8, 8(sp)
+	ldw r9, 12(sp)
+	ldw ra, 16(sp)
+	addi sp, sp, 20
+	ret
+
+/*
+ * r5: modified
+ * r6: modified
+ * r8: old size
+ * @param ptr
+ * @param BUDGIE // such shoutouts, no-one else can follow the connections because they are too obscure and ambiguous
+ * @timeCapsule I WANT IT ALL
+ */
+os_vechs_unshift:
+	addi sp, sp, -16
+	stw r5, 0(sp)
+	stw r6, 4(sp)
+	stw r8, 8(sp)
+	stw ra, 12(sp)
+
+	# get size
+	call os_vechs_size
+	mov r8, r2
+
+	# add the budgie to the end, increasing the size
+	call os_vechs_push
+
+	# r5 is the index we are moving to
+	mov r5, r2
+
+os_vechs_unshift_loop:
+	# while index > 0
+	beq r5, r0, os_vechs_unshift_loop_done
+	# get src
+	addi r5, r5, -1
+	call os_vechs_get
+	# set dest
+	mov r6, r2
+	addi r5, r5, 1
+	call os_vechs_set
+	# decrement index
+	addi r5, r5, -1
+
+os_vechs_unshift_loop_done:
+	# get budgie
+	ldw r6, 0(sp)
+	mov r5, r0
+	# set first element
+	call os_vechs_set
+
+os_vechs_unshift_epilogue:
+	ldw r5, 0(sp)
+	ldw r6, 4(sp)
+	ldw r8, 8(sp)
+	ldw ra, 12(sp)
+	addi sp, sp, 16
+	ret
+
+/*
  * r4: modified
  * r5: modified, copy counter
  * r8: allocated size
@@ -1849,7 +1998,111 @@ os_bdel:
 	ret
 
 /* hmmm */
+/*
+ * r4: modified
+ * r8: process io out address
+ * r9: 3
+ * r23: process io out base
+ * @param byte to print
+ */
 os_putchar:
+	wrctl r0, ctl0
+	movia et, PROCESS_REGISTERS_TMP
+	stw r1, 4(et)
+	stw r2, 8(et)
+	stw r3, 12(et)
+	stw r4, 16(et)
+	stw r5, 20(et)
+	stw r6, 24(et)
+	stw r7, 28(et)
+	stw r8, 32(et)
+	stw r9, 36(et)
+	stw r15, 40(et)
+	stw r11, 44(et)
+	stw r12, 48(et)
+	stw r13, 52(et)
+	stw r14, 56(et)
+	stw r15, 60(et)
+	stw r16, 64(et)
+	stw r17, 68(et)
+	stw r18, 72(et)
+	stw r19, 76(et)
+	stw r20, 80(et)
+	stw r21, 84(et)
+	stw r22, 88(et)
+	stw r23, 92(et)
+	# NOTE: saving `et` is superfluous
+	stw r24, 96(et)
+	stw r25, 100(et)
+	stw r26, 104(et)
+	stw r27, 108(et)
+	stw r28, 112(et)
+	stw r29, 116(et)
+	stw r30, 120(et)
+	stw r31, 124(et)
+
+	addi sp, sp, -4
+	stw r4, 0(sp)
+
+	movia r23, PROCESS_IO_OUT
+
+	# get table index
+	call os_process_current
+	mov r4, r2
+
+	# set status byte
+	call os_process_table_entry
+	movi r9, 3
+	stb r9, PROCESS_TABLE_STATUS(r2)
+
+	# address = offset + index
+	call os_process_table_index
+	add r8, r23, r2
+	# set output byte
+	ldw r4, 0(sp)
+	stb r4, 0(r8)
+
+	addi sp, sp, 4
+	call os_schedule
+	mov ra, ea
+
+os_putchar_epilogue:
+	movia et, PROCESS_REGISTERS_TMP
+	ldw r1, 4(et)
+	ldw r2, 8(et)
+	ldw r3, 12(et)
+	ldw r4, 16(et)
+	ldw r5, 20(et)
+	ldw r6, 24(et)
+	ldw r7, 28(et)
+	ldw r8, 32(et)
+	ldw r9, 36(et)
+	ldw r15, 40(et)
+	ldw r11, 44(et)
+	ldw r12, 48(et)
+	ldw r13, 52(et)
+	ldw r14, 56(et)
+	ldw r15, 60(et)
+	ldw r16, 64(et)
+	ldw r17, 68(et)
+	ldw r18, 72(et)
+	ldw r19, 76(et)
+	ldw r20, 80(et)
+	ldw r21, 84(et)
+	ldw r22, 88(et)
+	ldw r23, 92(et)
+	# NOTE: restoring `et` is superfluous
+	ldw r24, 96(et)
+	ldw r25, 100(et)
+	ldw r26, 104(et)
+	ldw r27, 108(et)
+	ldw r28, 112(et)
+	ldw r29, 116(et)
+	ldw r30, 120(et)
+	ldw r31, 124(et)
+
+	movi et, 1
+	wrctl et, ctl0
 	ret
 
 /*
@@ -1888,6 +2141,25 @@ os_memcpy_epilogue:
 	ldw r9, 4(sp)
 	ldw r10, 8(sp)
 	addi sp, sp, 12
+	ret
+
+os_pause:
+	addi sp, sp, -8
+	stw r8, 0(sp)
+	stw r9, 4(sp)
+
+	mov r8, r0
+	movia r9, 50000000
+
+os_pause_loop:
+	beq r8, r9, os_pause_epilogue
+	addi r8, r8, 1
+	br os_pause_loop
+
+os_pause_epilogue:
+	ldw r8, 0(sp)
+	ldw r9, 4(sp)
+	addi sp, sp, 8
 	ret
 
 have_fun_looping:
