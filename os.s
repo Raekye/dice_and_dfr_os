@@ -175,6 +175,13 @@ PROCESS_SLEEPING:
 PROCESS_IO_OUT:
 	.skip PROCESS_IO_OUT_BYTES
 
+/*
+ * In the wise words of N0vale the Oval, Ender of Ellipses:
+ * "Yolo is the only strategy"
+ */
+PROCESS_IO_YOLOQ:
+	.skip 4
+
 PROCESS_REGISTERS_TMP:
 	.skip PROCESS_REGISTERS_TMP_BYTES
 
@@ -352,6 +359,12 @@ seog_ti_os:
 	movi r8, 1
 	wrctl ctl0, r8
 
+	# initialize process io queue
+	movi r4, 16
+	call os_vechs_new
+	movia r23, PROCESS_IO_YOLOQ
+	stw r2, 0(r23)
+
 	# root dir
 	mov r4, r0
 	movia r5, EPSILON
@@ -371,14 +384,14 @@ seog_ti_os:
 	stw r0, 0(r8)
 	# pc
 	movia r9, os_bdel
-	stw r9, 4(r8)
+	stw r9, PROCESS_TABLE_PC(r8)
 	# stack offset
-	stw r10, 8(r8)
+	stw r10, PROCESS_TABLE_STACK(r8)
 	# status byte
 	movi r9, 1
-	stw r9, 12(r8)
+	stw r9, PROCESS_TABLE_STATUS(r8)
 	# parent id
-	stw r0, 16(r8)
+	stw r0, PROCESS_TABLE_PARENT(r8)
 
 	# bombadil process
 	addi r8, r8, 16
@@ -388,14 +401,14 @@ seog_ti_os:
 	stw r9, 0(r8)
 	# pc
 	movia r9, have_fun_looping
-	stw r9, 4(r8)
+	stw r9, PROCESS_TABLE_PC(r8)
 	# stack offset
-	stw r10, 8(r8)
+	stw r10, PROCESS_TABLE_STACK(r8)
 	# status byte
 	movi r9, 1
-	stw r9, 12(r8)
+	stw r9, PROCESS_TABLE_STATUS(r8)
 	# parent id
-	stw r0, 16(r8)
+	stw r0, PROCESS_TABLE_PARENT(r8)
 
 	br have_fun_looping
 
@@ -1013,7 +1026,7 @@ os_process_stack_offset:
 	stw ra, 0(sp)
 
 	call os_process_table_entry
-	ldw r2, 8(r2)
+	ldw r2, PROCESS_TABLE_STACK(r2)
 
 	ldw ra, 0(sp)
 	addi sp, sp, 4
@@ -1092,7 +1105,7 @@ os_fork_found_empty_entry:
 
 	# add new entry for child process
 	# set process id
-	stw r8, 0(r15)
+	stw r8, PROCESS_TABLE_ID(r15)
 	# pc set below
 	# set stack pointer
 	# point to top
@@ -1102,11 +1115,11 @@ os_fork_found_empty_entry:
 	# base + offset
 	add r13, r19, r13
 	# save stack pointer
-	stw r13, 8(r15)
+	stw r13, PROCESS_TABLE_STACK(r15)
 	# set status running
 	# r2 used as temporary register
 	movi r2, 1
-	stb r2, 12(sp)
+	stb r2, PROCESS_TABLE_STATUS(sp)
 
 	# save registers for child process
 	# offset into registers
@@ -1151,7 +1164,7 @@ os_fork_found_empty_entry:
 	# when the os switches to the child, it will reload the registers, and continue executing (re-execute next instruction, harmless re-write)
 	# it will have reloaded 0 as the return value, and return from fork
 	nextpc r14
-	stw r14, 4(r15)
+	stw r14, PROCESS_TABLE_PC(r15)
 
 	br os_fork_epilogue
 
@@ -1266,7 +1279,7 @@ os_schedule_find_process:
 	# checked all entries
 	beq r9, r8, os_schedule_no_running_processes
 	# load status byte
-	ldb r11, 12(r15)
+	ldb r11, PROCESS_TABLE_STATUS(r15)
 	# if status byte is 1
 	beq r11, r22, os_schedule_found_running_process
 	# then increment counter
@@ -1280,10 +1293,10 @@ os_schedule_found_running_process:
 	# address = base + offset
 	add r16, r23, r12
 	# save current process pc in process table
-	stw ea, 4(r16)
+	stw ea, PROCESS_TABLE_PC(r16)
 
 	# load next process pc from process table
-	ldw ea, 4(r10)
+	ldw ea, PROCESS_TABLE_PC(r10)
 
 	# 32 registers * 4 bytes
 	muli r12, r14, 128
@@ -1431,8 +1444,7 @@ os_schedule_found_running_process:
 	br os_schedule_epilogue
 
 os_schedule_no_running_processes:
-	# TODO: hmmm
-	br os_schedule_epilogue
+	br os_badness
 
 os_schedule_epilogue:
 	ldw r8, 0(sp)
@@ -1684,7 +1696,7 @@ os_vechs_size:
 os_vechs_get:
 	ldw r2, 0(r4)
 	add r2, r2, r5
-	ldw r2, 0(r2)
+	ldb r2, 0(r2)
 	ret
 
 /*
@@ -1695,7 +1707,7 @@ os_vechs_get:
 os_vechs_set:
 	ldw r2, 0(r4)
 	add r2, r2, r5
-	stw r6, 0(r2)
+	stb r6, 0(r2)
 	ret
 
 /*
@@ -2055,6 +2067,9 @@ os_putchar:
 	movi r9, 3
 	stb r9, PROCESS_TABLE_STATUS(r2)
 
+	# enqueue yoloq
+	call os_io_yoloq_enqueue
+
 	# address = offset + index
 	call os_process_table_index
 	add r8, r23, r2
@@ -2103,6 +2118,85 @@ os_putchar_epilogue:
 
 	movi et, 1
 	wrctl et, ctl0
+	ret
+
+/*
+ * r4: modified
+ * r5: modified
+ * r23: process io yoloq
+ * @param process id
+ */
+os_io_yoloq_enqueue:
+	addi sp, sp, -16
+	stw r4, 0(sp)
+	stw r5, 4(sp)
+	stw r23, 8(sp)
+	stw ra, 12(sp)
+
+	# mov process id argument position
+	mov r5, r4
+
+	movia r23, PROCESS_IO_YOLOQ
+	ldw r4, 0(r23)
+
+	# byte 0
+	call os_vechs_push
+	# byte 1
+	srli r5, r5, 8
+	call os_vechs_push
+	# byte 2
+	srli r5, r5, 8
+	call os_vechs_push
+	# byte 3
+	srli r5, r5, 8
+	call os_vechs_push
+
+	ldw r4, 0(sp)
+	ldw r5, 4(sp)
+	ldw r23, 8(sp)
+	ldw ra, 12(sp)
+	addi sp, sp, 16
+	ret
+
+/*
+ * r4: modified
+ * r8: temporary
+ * r23: process io yoloq
+ */
+os_io_yoloq_dequeue:
+	addi sp, sp, -16
+	stw r4, 0(sp)
+	stw r8, 4(sp)
+	stw r23, 8(sp)
+	stw ra, 12(sp)
+
+	movia r23, PROCESS_IO_YOLOQ
+	ldw r4, 0(r23)
+
+	# byte 0
+	call os_vechs_shift
+	mov r8, r2
+
+	# byte 1
+	call os_vechs_shift
+	slli r8, r8, 8
+	or r8, r8, r2
+
+	# byte 2
+	call os_vechs_shift
+	slli r8, r8, 8
+	or r8, r8, r2
+
+	# byte 3
+	call os_vechs_shift
+	slli r8, r8, 8
+	or r2, r8, r2
+
+	ldw r4, 0(sp)
+	ldw r8, 4(sp)
+	ldw r23, 8(sp)
+	ldw ra, 12(sp)
+	addi sp, sp, 16
 	ret
 
 /*
@@ -2161,6 +2255,13 @@ os_pause_epilogue:
 	ldw r9, 4(sp)
 	addi sp, sp, 8
 	ret
+
+os_badness:
+	wrctl r0, ctl0
+	movia r23, LEDS_RED
+	movi r8, 1
+	stw r8, 0(r23)
+	br have_fun_looping
 
 have_fun_looping:
 	br have_fun_looping
