@@ -71,7 +71,12 @@
  *   - bytes 0-3: process ID
  *   - bytes 4-7: pc
  *   - bytes 8-11: stack offset
- *   - byte 12: state - 0 for dead/unused, 1 for running, 2 for sleeping, 3 for waiting IO
+ *   - byte 12: state
+ *     - 0: dead/unused
+ *     - 1: running
+ *     - 2: sleeping
+ *     - 3: waiting IO write
+ *     - 4: waiting IO read
  *   - bytes 16-19: parent process id
  * - each process has
  *   - saved registers for context switching (total 128 processes * 32 registers * 4 bytes)
@@ -293,8 +298,17 @@ ISR_EPILOGUE:
 /* TEXT */
 .text
 interrupt_handle_timer:
-	# TODO: handle sleeping processes
-	# TODO: handle switch process
+	addi sp, sp, -4
+	stw ra, 0(sp)
+
+	# tock... did I do good?
+	call os_tick
+
+	# aww yis
+	call os_schedule
+
+	ldw ra, 0(sp)
+	addi sp, sp, 4
 	ret
 
 interrupt_handle_jtag_uart:
@@ -310,6 +324,10 @@ interrupt_handle_jtag_uart_read:
 	br interrupt_handle_jtag_uart_epilogue
 
 interrupt_handle_jtag_uart_write:
+	# for each space available
+	# dequeue io yoloq
+	# write the byte
+	# update status byte
 	br interrupt_handle_jtag_uart_epilogue
 
 interrupt_handle_jtag_uart_epilogue:
@@ -320,20 +338,7 @@ interrupt_handle_jtag_uart_epilogue:
 seog_ti_os:
 	movia sp, 0x007FFFFC
 
-	movia r8, LEDS_RED
-	movia r9, HEAP
-	stwio r9, 0(r8)
-
-	movi r4, 4
-	call os_malloc
-	call os_malloc
-	mov r10, r2
-	call os_malloc
-	mov r4, r10
-	call os_free
-	movi r4, 8
-	call os_malloc
-	stwio r2, 0(r8)
+	call os_badness
 
 	br have_fun_looping
 
@@ -961,22 +966,38 @@ os_process_table_index_epilogue:
 
 /*
  * r23: process table
- * @param process id
+ * @param index
  */
-os_process_table_entry:
-	addi sp, sp, -8
+os_process_table_entry_from_index:
+	addi sp, sp, -4
 	stw r23, 0(sp)
-	stw ra, 4(sp)
 
 	movia r23, PROCESS_TABLE
-	# get index
-	call os_process_table_index
 	# index * size
-	muli r2, r2, 16
+	muli r2, r4, PROCESS_TABLE_ENTRY_BYTES
 	# base address + offset
 	add r2, r23, r2
 
 	ldw r23, 0(sp)
+	addi sp, sp, 4
+	ret
+
+/*
+ * r4: process table
+ * @param process id
+ */
+os_process_table_entry:
+	addi sp, sp, -8
+	stw r4, 0(sp)
+	stw ra, 4(sp)
+
+	# get index, first arg forwarded along
+	call os_process_table_index
+	# set index as arg to next function
+	mov r4, r2
+	call os_process_table_entry_from_index
+
+	ldw r4, 0(sp)
 	ldw ra, 4(sp)
 	addi sp, sp, 8
 	ret
@@ -1193,20 +1214,197 @@ os_fork_epilogue:
 	addi sp, sp, 68
 	ret
 
-os_exec:
-	ret
-
+/*
+ * Terminate own process
+ */
 os_mort:
-	ret
-
-os_sleep:
+	# TODO: cycle through processes, update children's parent IDs
+	# TODO: release foreground to parent, if has
+	# TODO: clear own process table entry
+	# TODO: execute scheduler
 	ret
 
 /*
- * Decrements sleep time remaining of all processes, if nonzero, and normalizes to 0
- * If 0, update sleeping processes to running
+ * Delegates forground to child process
+ * @param child id
+ */
+os_foreground_delegate:
+	ret
+
+/*
+ * @param time in 0.1 seconds (hundred milliseconds)
+ */
+os_sleep:
+	wrctl ctl0, r0
+	movia et, PROCESS_REGISTERS_TMP
+	stw r1, 4(et)
+	stw r2, 8(et)
+	stw r3, 12(et)
+	stw r4, 16(et)
+	stw r5, 20(et)
+	stw r6, 24(et)
+	stw r7, 28(et)
+	stw r8, 32(et)
+	stw r9, 36(et)
+	stw r15, 40(et)
+	stw r11, 44(et)
+	stw r12, 48(et)
+	stw r13, 52(et)
+	stw r14, 56(et)
+	stw r15, 60(et)
+	stw r16, 64(et)
+	stw r17, 68(et)
+	stw r18, 72(et)
+	stw r19, 76(et)
+	stw r20, 80(et)
+	stw r21, 84(et)
+	stw r22, 88(et)
+	stw r23, 92(et)
+	# NOTE: saving `et` is superfluous
+	stw r24, 96(et)
+	stw r25, 100(et)
+	stw r26, 104(et)
+	stw r27, 108(et)
+	stw r28, 112(et)
+	stw r29, 116(et)
+	stw r30, 120(et)
+	stw r31, 124(et)
+
+	movia r23, PROCESS_SLEEPING
+	# save sleep time in temporary register
+	mov r8, r4
+	# get process id
+	call os_process_current
+	# get table entry address
+	mov r4, r2
+	call os_process_table_index
+	# offset = index * size
+	muli r9, r2, 4
+	# address = base + offset
+	add r9, r23, r9
+	# save sleep time
+	stw r8, 0(r9)
+
+	# get table entry address
+	mov r4, r2
+	call os_process_table_entry_from_index
+	# save sleeping status byte
+	movi r9, 2
+	stw r9, 0(r2)
+
+	call os_schedule
+	mov ra, ea
+
+os_sleep_epilogue:
+	movia et, PROCESS_REGISTERS_TMP
+	ldw r1, 4(et)
+	ldw r2, 8(et)
+	ldw r3, 12(et)
+	ldw r4, 16(et)
+	ldw r5, 20(et)
+	ldw r6, 24(et)
+	ldw r7, 28(et)
+	ldw r8, 32(et)
+	ldw r9, 36(et)
+	ldw r15, 40(et)
+	ldw r11, 44(et)
+	ldw r12, 48(et)
+	ldw r13, 52(et)
+	ldw r14, 56(et)
+	ldw r15, 60(et)
+	ldw r16, 64(et)
+	ldw r17, 68(et)
+	ldw r18, 72(et)
+	ldw r19, 76(et)
+	ldw r20, 80(et)
+	ldw r21, 84(et)
+	ldw r22, 88(et)
+	ldw r23, 92(et)
+	# NOTE: restoring `et` is superfluous
+	ldw r24, 96(et)
+	ldw r25, 100(et)
+	ldw r26, 104(et)
+	ldw r27, 108(et)
+	ldw r28, 112(et)
+	ldw r29, 116(et)
+	ldw r30, 120(et)
+	ldw r31, 124(et)
+
+	movi et, 1
+	wrctl ctl0, et
+	ret
+
+/*
+ * Decrements sleep time remaining of all processes
+ * If dropped to 0, update sleeping process to running
+ *
+ * r4: modified
+ * r8: address in process_sleeping
+ * r9: counter
+ * r10: time remaining loaded
+ * r11: 2
+ * r22: process table max
+ * r23: process sleeping
  */
 os_tick:
+	addi sp, sp, -32
+	ldw r4, 0(sp)
+	ldw r8, 4(sp)
+	ldw r9, 8(sp)
+	ldw r10, 12(sp)
+	ldw r11, 16(sp)
+	ldw r22, 20(sp)
+	ldw r23, 24(sp)
+	ldw ra, 28(sp)
+
+	movia r23, PROCESS_SLEEPING
+	movia r22, PROCESS_TABLE_MAX
+	mov r8, r23
+	mov r9, r0
+
+os_tick_loop:
+	# if counter == num entries
+	beq r9, r22, os_tick_epilogue
+
+	# read time remaining
+	ldw r10, 0(r8)
+
+	# if time remaining was already 0 (not sleeping)
+	beq r10, r0, os_tick_loop_after
+	# then process is sleeping
+	# decrement counter
+	addi r10, r10, -1
+	# save value
+	ldw r10, 0(r8)
+	# if time dropped to 0
+	beq r10, r0, os_tick_loop_wake
+	# then next
+	br os_tick_loop_after
+
+os_tick_loop_wake:
+	# set index as arg
+	mov r4, r9
+	call os_process_table_entry_from_index
+	# set ldatus byte to running
+	movi r11, 1
+	ldw r11, PROCESS_TABLE_STATUS(r2)
+	br os_tick_loop_after
+
+os_tick_loop_after:
+	addi r8, r8, 4
+	addi r9, r9, 1
+	br os_tick_loop
+
+os_tick_epilogue:
+	ldw r4, 0(sp)
+	ldw r8, 4(sp)
+	ldw r9, 8(sp)
+	ldw r10, 12(sp)
+	ldw r11, 16(sp)
+	ldw r22, 20(sp)
+	ldw r23, 24(sp)
+	ldw ra, 28(sp)
+	addi sp, sp, 32
 	ret
 
 /*
@@ -2007,7 +2205,7 @@ os_strlen_epilogue:
  * Should never terminate
  */
 os_bdel:
-	ret
+	br os_bdel
 
 /* hmmm */
 /*
@@ -2018,7 +2216,7 @@ os_bdel:
  * @param byte to print
  */
 os_putchar:
-	wrctl r0, ctl0
+	wrctl ctl0, r0
 	movia et, PROCESS_REGISTERS_TMP
 	stw r1, 4(et)
 	stw r2, 8(et)
@@ -2117,7 +2315,7 @@ os_putchar_epilogue:
 	ldw r31, 124(et)
 
 	movi et, 1
-	wrctl et, ctl0
+	wrctl ctl0, et
 	ret
 
 /*
@@ -2200,6 +2398,32 @@ os_io_yoloq_dequeue:
 	ret
 
 /*
+ * r8: polling spaces available for write
+ * r23: jtag uart
+ * @param char
+ */
+os_putchar_sync:
+	addi sp, sp, -8
+	stw r8, 0(sp)
+	stw r23, 4(sp)
+
+	movia r23, JTAG_UART
+
+os_putchar_sync_poll:
+	ldwio r8, JTAG_UART_CTRL(r23)
+	srli r8, r8, 16
+	beq r8, r0, os_putchar_sync_poll
+
+	# done polling
+	stwio r4, JTAG_UART_DATA(r23)
+
+os_putchar_sync_epilogue:
+	ldw r8, 0(sp)
+	ldw r23, 4(sp)
+	addi sp, sp, 0
+	ret
+
+/*
  * r8: counter
  * r9: address
  * r10: loaded byte
@@ -2257,7 +2481,7 @@ os_pause_epilogue:
 	ret
 
 os_badness:
-	wrctl r0, ctl0
+	wrctl ctl0, r0
 	movia r23, LEDS_RED
 	movi r8, 1
 	stw r8, 0(r23)
