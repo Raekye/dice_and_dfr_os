@@ -11,6 +11,7 @@
  * TODO: parent process ID
  * TODO: modifying foreground process
  * TODO: use PROCESS_TABLE_*(r*) instead of hardcoded values
+ * TODO: protocol after calling os_schedule - overwriting ea
  *
  * ## Conventions
  * - Most registers are callee-saved; I find this easier to work with
@@ -227,7 +228,7 @@ ISR:
 	stw r7, 28(et)
 	stw r8, 32(et)
 	stw r9, 36(et)
-	stw r15, 40(et)
+	stw r10, 40(et)
 	stw r11, 44(et)
 	stw r12, 48(et)
 	stw r13, 52(et)
@@ -262,10 +263,10 @@ ISR:
 	bne et, r0, ISR_HANDLE_JTAG_UART
 
 ISR_HANDLE_TIMER:
+	call interrupt_handle_timer
 	# clear status bit
 	movia et, TIMER
 	stwio r0, TIMER_STATUS(et)
-	call interrupt_handle_timer
 	br ISR_EPILOGUE
 
 ISR_HANDLE_JTAG_UART:
@@ -283,7 +284,7 @@ ISR_EPILOGUE:
 	ldw r7, 28(et)
 	ldw r8, 32(et)
 	ldw r9, 36(et)
-	ldw r15, 40(et)
+	ldw r10, 40(et)
 	ldw r11, 44(et)
 	ldw r12, 48(et)
 	ldw r13, 52(et)
@@ -303,7 +304,8 @@ ISR_EPILOGUE:
 	ldw r26, 104(et)
 	ldw r27, 108(et)
 	ldw r28, 112(et)
-	ldw r29, 116(et)
+	# don't overwrite `ea`
+	#ldw r29, 116(et)
 	ldw r30, 120(et)
 	ldw r31, 124(et)
 	eret
@@ -322,9 +324,7 @@ interrupt_handle_timer:
 	call os_tick
 
 	# aww yis
-	#call os_schedule
-
-	call os_printstr_sync
+	call os_schedule
 
 	ldw r4, 0(sp)
 	ldw ra, 4(sp)
@@ -336,8 +336,8 @@ interrupt_handle_jtag_uart:
 
 	movia r8, JTAG_UART
 	ldwio r9, JTAG_UART_CTRL(r8)
-	andi r15, r9, 0x10 # bit 8, read interrupt pending
-	bne r15, r0, interrupt_handle_jtag_uart_read
+	andi r10, r9, 0x10 # bit 8, read interrupt pending
+	bne r10, r0, interrupt_handle_jtag_uart_read
 	br interrupt_handle_jtag_uart_write
 
 interrupt_handle_jtag_uart_read:
@@ -356,10 +356,86 @@ interrupt_handle_jtag_uart_epilogue:
 
 /* main */
 seog_ti_os:
+	wrctl ctl0, r0
 	movia sp, 0x007FFFFC
+
+	/*
+	# root dir
+	mov r4, r0
+	movia r5, EPSILON
+	call os_mkdir
+
+	# foo
+	movia r5, FOO
+	call os_mkdir
+	*/
+
+	# reset heap
+	movia r4, HEAP
+	mov r5, r0
+	movia r6, HEAP_BYTES
+	call os_memset
+
+	# initialize process io queue
+	movi r4, 16
+	call os_vechs_new
+	movia r23, PROCESS_IO_YOLOQ
+	stw r2, 0(r23)
+
+	movia r8, PROCESS_TABLE
+	movia r10, PROCESS_STACKS
+	movia r23, PROCESS_STACKS_BYTES
+	movia r22, PROCESS_REGISTERS
+	# stack starts at top address
+	add r10, r10, r23
+
+	# shell process
+	# process id
+	stw r0, 0(r8)
+	# pc
+	movia r9, os_bdel
+	stw r9, PROCESS_TABLE_PC(r8)
+	# stack offset
+	stw r10, PROCESS_TABLE_STACK(r8)
+	# status byte
+	movi r9, 1
+	stw r9, PROCESS_TABLE_STATUS(r8)
+	# parent id
+	stw r0, PROCESS_TABLE_PARENT(r8)
+
+	# bombadil process
+	addi r8, r8, 20
+	add r11, r10, r23
+	# process id
+	movi r9, 1
+	stw r9, 0(r8)
+	# pc
+	movia r9, os_bombadil
+	stw r9, PROCESS_TABLE_PC(r8)
+	# stack offset
+	stw r11, PROCESS_TABLE_STACK(r8)
+	# status byte
+	movi r9, 1
+	stw r9, PROCESS_TABLE_STATUS(r8)
+	# parent id
+	stw r0, PROCESS_TABLE_PARENT(r8)
+	# set sp register
+	# it is the second entry in the process table
+	addi r12, r22, 128
+	stw r11, 108(r12)
+
+	# set shell to be running process
+	movia r23, PROCESS_CURRENT
+	stw r0, 0(r23)
+	movia r23, PROCESS_FOREGROUND
+	stw r0, 0(r23)
+	# set stack pointer
+	mov sp, r10
 
 	# enable timer interrupts
 	movia r8, TIMER
+	# clear timer
+	stwio r0, TIMER_STATUS(r8)
 	movi r9, %hi(CYCLES_PER_HUNDRED_MILLISECONDS)
 	stwio r9, TIMER_PERIOD_H(r8)
 	movi r9, %lo(CYCLES_PER_HUNDRED_MILLISECONDS)
@@ -380,65 +456,7 @@ seog_ti_os:
 	movi r8, 1
 	wrctl ctl0, r8
 
-	# initialize process io queue
-	movi r4, 16
-	call os_vechs_new
-	movia r23, PROCESS_IO_YOLOQ
-	stw r2, 0(r23)
-
-	/*
-	# root dir
-	mov r4, r0
-	movia r5, EPSILON
-	call os_mkdir
-
-	# foo
-	movia r5, FOO
-	call os_mkdir
-	*/
-
-	movia r8, PROCESS_TABLE
-	movia r10, PROCESS_STACKS
-	movia r23, PROCESS_STACKS_BYTES
-	# stack starts at top address
-	add r10, r10, r23
-
-	# shell process
-	# process id
-	stw r0, 0(r8)
-	# pc
-	movia r9, os_bdel
-	stw r9, PROCESS_TABLE_PC(r8)
-	# stack offset
-	stw r10, PROCESS_TABLE_STACK(r8)
-	# status byte
-	movi r9, 1
-	stw r9, PROCESS_TABLE_STATUS(r8)
-	# parent id
-	stw r0, PROCESS_TABLE_PARENT(r8)
-
-	# bombadil process
-	addi r8, r8, 20
-	add r10, r10, r23
-	# process id
-	movi r9, 1
-	stw r9, 0(r8)
-	# pc
-	movia r9, os_bombadil
-	stw r9, PROCESS_TABLE_PC(r8)
-	# stack offset
-	stw r10, PROCESS_TABLE_STACK(r8)
-	# status byte
-	movi r9, 1
-	stw r9, PROCESS_TABLE_STATUS(r8)
-	# parent id
-	stw r0, PROCESS_TABLE_PARENT(r8)
-
-	# set shell to be running process
-	movia r23, PROCESS_CURRENT
-	stw r0, 0(r23)
-	movia r23, PROCESS_FOREGROUND
-	stw r0, 0(r23)
+	# start shell
 	br os_bdel
 
 /* romania */
@@ -477,7 +495,7 @@ os_mkdir:
 /*
  * r8: node id
  * r9: node address
- * r15: block id
+ * r10: block id
  * r11: block address
  * r12: temporary register (block id in node structure, others)
  * @param node id of parent folder
@@ -491,7 +509,7 @@ os_falloc:
 	stw r6, 8(sp)
 	stw r8, 12(sp)
 	stw r9, 16(sp)
-	stw r15, 20(sp)
+	stw r10, 20(sp)
 	stw r11, 24(sp)
 	stw r12, 28(sp)
 	stw r22, 32(sp)
@@ -505,11 +523,11 @@ os_falloc:
 	mov r8, r2
 	add r9, r8, r22
 	call os_romania_allocate_block
-	mov r15, r2
-	add r11, r15, r23
+	mov r10, r2
+	add r11, r10, r23
 
 	# upper 4 bits of block id
-	srli r12, r15, 8
+	srli r12, r10, 8
 	slli r12, r12, 4
 	# directory or file bit
 	slli r6, r6, 1
@@ -519,7 +537,7 @@ os_falloc:
 	or r12, r12, r6
 
 	stb r12, 0(r9)
-	stb r15, 1(r9)
+	stb r10, 1(r9)
 
 	mov r4, r5
 	call os_strlen
@@ -543,7 +561,7 @@ os_mkdir_epilogue:
 	ldw r6, 8(sp)
 	ldw r8, 12(sp)
 	ldw r9, 16(sp)
-	ldw r15, 20(sp)
+	ldw r10, 20(sp)
 	ldw r11, 24(sp)
 	ldw r12, 28(sp)
 	ldw r22, 32(sp)
@@ -661,7 +679,7 @@ os_cp:
  * r4: modified
  * r8: vechs
  * r9: block address
- * r15: read byte
+ * r10: read byte
  * r11: block address pointer (copying byte)
  * r12: copy counter
  * @param block id
@@ -671,7 +689,7 @@ os_romania_read_block_chain:
 	stw r4, 0(sp)
 	stw r8, 4(sp)
 	stw r9, 8(sp)
-	stw r15, 12(sp)
+	stw r10, 12(sp)
 	stw r11, 16(sp)
 	stw r12, 20(sp)
 	stw ra, 24(sp)
@@ -685,12 +703,12 @@ os_romania_read_block_chain_handle_block:
 	add r9, r22, r4
 
 	# read length
-	ldb r15, 1(r9)
+	ldb r10, 1(r9)
 	addi r11, r9, 3
 	mov r12, r0
 
 os_romania_read_block_chain_copy_block:
-	beq r12, r15, os_romania_read_block_chain_copy_block_done
+	beq r12, r10, os_romania_read_block_chain_copy_block_done
 	mov r4, r8
 	ldb r5, 0(r11)
 	call os_vechs_push
@@ -710,7 +728,7 @@ os_romania_read_block_chain_epilogue:
 	ldw r4, 0(sp)
 	ldw r8, 4(sp)
 	ldw r9, 8(sp)
-	ldw r15, 12(sp)
+	ldw r10, 12(sp)
 	ldw r11, 16(sp)
 	ldw r12, 20(sp)
 	ldw ra, 24(sp)
@@ -724,7 +742,7 @@ os_romania_block_from_node:
 	addi sp, sp, -16
 	stw r8, 0(sp)
 	stw r9, 4(sp)
-	stw r15, 8(sp)
+	stw r10, 8(sp)
 	stw r22, 12(sp)
 
 	movia r22, ROMANIA_NODES
@@ -733,17 +751,17 @@ os_romania_block_from_node:
 	# load byte 0
 	ldb r9, 0(r8)
 	# load byte 1
-	ldb r15, 1(r8)
+	ldb r10, 1(r8)
 	# get upper bits of byte 0, the upper 4 bits of block id
 	andi r9, r9, 0xf0
 	# shift upper 4 bits of block id
-	slli r15, r10, 8
-	or r2, r9, r15
+	slli r10, r10, 8
+	or r2, r9, r10
 
 os_romania_block_from_node_epilogue:
 	ldw r8, 0(sp)
 	ldw r9, 4(sp)
-	ldw r15, 8(sp)
+	ldw r10, 8(sp)
 	ldw r22, 12(sp)
 	addi sp, sp, 16
 
@@ -756,14 +774,16 @@ os_romania_find_node:
 
 /*
  * r8: address
+ * r10: loaded byte
  * r22: nodes offset
  * r23: nodes bytes
  */
 os_romania_allocate_node:
-	addi sp, sp, -12
+	addi sp, sp, -16
 	stw r8, 0(sp)
-	stw r22, 4(sp)
-	stw r23, 8(sp)
+	stw r10, 4(sp)
+	stw r22, 8(sp)
+	stw r23, 12(sp)
 
 	# initialize
 	mov r2, r0
@@ -774,30 +794,33 @@ os_romania_allocate_node_loop:
 	# r8 = index + offset
 	add r8, r2, r22
 	# read first byte of a node
-	ldb r15, 0(r8)
+	ldb r10, 0(r8)
 	# if 0, found block
-	beq r15, r0, os_romania_allocate_node_epilogue
+	beq r10, r0, os_romania_allocate_node_epilogue
 	# then non-zero, skip over node
 	addi r2, r2, 16
 	br os_romania_allocate_node_loop
 
 os_romania_allocate_node_epilogue:
 	ldw r8, 0(sp)
-	ldw r22, 4(sp)
-	ldw r23, 8(sp)
-	addi sp, sp, 12
+	ldw r10, 4(sp)
+	ldw r22, 8(sp)
+	ldw r23, 12(sp)
+	addi sp, sp, 16
 	ret
 
 /*
  * r8: address
+ * r10: loaded byte
  * r22: blocks offset
  * r23: blocks bytes
  */
 os_romania_allocate_block:
-	addi sp, sp, -12
+	addi sp, sp, -16
 	stw r8, 0(sp)
-	stw r22, 4(sp)
-	stw r23, 8(sp)
+	stw r10, 4(sp)
+	stw r22, 8(sp)
+	stw r23, 12(sp)
 
 	# initialize
 	mov r2, r0
@@ -808,9 +831,9 @@ os_romania_allocate_block_loop:
 	# r8 = index + offset
 	add r8, r2, r22
 	# read first byte of a block
-	ldb r15, 0(r8)
+	ldb r10, 0(r8)
 	# if 0, found block
-	beq r15, r0, os_romania_allocate_block_found
+	beq r10, r0, os_romania_allocate_block_found
 	# then non-zero, skip over block
 	addi r2, r2, 256
 	br os_romania_allocate_block_loop
@@ -824,9 +847,10 @@ os_romania_allocate_block_found:
 
 os_romania_allocate_block_epilogue:
 	ldw r8, 0(sp)
-	ldw r22, 4(sp)
-	ldw r23, 8(sp)
-	addi sp, sp, 12
+	ldw r10, 4(sp)
+	ldw r22, 8(sp)
+	ldw r23, 12(sp)
+	addi sp, sp, 16
 	ret
 
 /*
@@ -864,19 +888,19 @@ os_romania_free_block_chain_epilogue:
 /*
  * r8: counter
  * r9: index
- * r15: upper bound
+ * r10: upper bound
  */
 os_romania_free_node:
 	addi sp, sp, -12
 	stw r8, 0(sp)
 	stw r9, 4(sp)
-	stw r15, 8(sp)
+	stw r10, 8(sp)
 	
 	mov r8, r0
-	movi r15, 16
+	movi r10, 16
 
 os_romania_free_node_loop:
-	beq r8, r15, os_romania_free_node_epilogue
+	beq r8, r10, os_romania_free_node_epilogue
 	# r9 points to a byte in the node we are zeroing
 	add r9, r4, r8
 	# zero byte
@@ -887,26 +911,26 @@ os_romania_free_node_loop:
 os_romania_free_node_epilogue:
 	ldw r8, 0(sp)
 	ldw r9, 4(sp)
-	ldw r15, 8(sp)
+	ldw r10, 8(sp)
 	addi sp, sp, 12
 	ret
 
 /*
  * r8: counter
  * r9: index
- * r15: upper bound
+ * r10: upper bound
  */
 os_romania_free_block:
 	addi sp, sp, -12
 	stw r8, 0(sp)
 	stw r9, 4(sp)
-	stw r15, 8(sp)
+	stw r10, 8(sp)
 	
 	mov r8, r0
-	movi r15, 256
+	movi r10, 256
 
 os_romania_free_block_loop:
-	beq r8, r15, os_romania_free_block_epilogue
+	beq r8, r10, os_romania_free_block_epilogue
 	# r9 points to a byte in the block we are zeroing
 	add r9, r4, r8
 	# zero byte
@@ -917,7 +941,7 @@ os_romania_free_block_loop:
 os_romania_free_block_epilogue:
 	ldw r8, 0(sp)
 	ldw r9, 4(sp)
-	ldw r15, 8(sp)
+	ldw r10, 8(sp)
 	addi sp, sp, 12
 	ret
 
@@ -940,7 +964,7 @@ os_process_current:
 /*
  * r8: process table counter
  * r9: address in process table
- * r15: loaded data
+ * r10: loaded data
  * r22: process max
  * r23: process table
  * @param process id
@@ -949,7 +973,7 @@ os_process_table_index:
 	addi sp, sp, -20
 	stw r8, 0(sp)
 	stw r9, 4(sp)
-	stw r15, 8(sp)
+	stw r10, 8(sp)
 	stw r22, 12(sp)
 	stw r23, 16(sp)
 
@@ -962,9 +986,9 @@ os_process_table_index_find_entry:
 	# bounds check
 	beq r8, r22, os_process_table_index_unfound_entry
 	# load process id
-	ldw r15, 0(r9)
+	ldw r10, 0(r9)
 	# if equals argument
-	beq r15, r4, os_process_table_index_found_entry
+	beq r10, r4, os_process_table_index_found_entry
 	# then not equal, increment counter, increment address/pointer
 	addi r8, r8, 1
 	addi r9, r9, 16
@@ -982,7 +1006,7 @@ os_process_table_index_unfound_entry:
 os_process_table_index_epilogue:
 	ldw r8, 0(sp)
 	ldw r9, 4(sp)
-	ldw r15, 8(sp)
+	ldw r10, 8(sp)
 	ldw r22, 12(sp)
 	ldw r23, 16(sp)
 	addi sp, sp, 20
@@ -1080,7 +1104,7 @@ os_process_stack_offset:
 /*
  * r8: child process id (process number)
  * r9: index in process table
- * r15: address in process table
+ * r10: address in process table
  * r11: process table entry state
  * r12: address in process registers
  * r13: pointer to top of stack of child
@@ -1095,7 +1119,7 @@ os_fork:
 	addi sp, sp, -68
 	stw r8, 0(sp)
 	stw r9, 4(sp)
-	stw r15, 8(sp)
+	stw r10, 8(sp)
 	stw r11, 12(sp)
 	stw r12, 16(sp)
 	stw r13, 20(sp)
@@ -1117,7 +1141,7 @@ os_fork:
 	movia r20, PROCESS_REGISTERS
 	movia r19, PROCESS_STACKS
 	mov r9, r0
-	mov r15, r22
+	mov r10, r22
 
 	# load process num
 	ldw r8, 0(r23)
@@ -1126,12 +1150,12 @@ os_fork_find_empty_entry:
 	# check for max processes
 	beq r9, r21, os_fork_out_of_processes
 	# read process status
-	ldb r11, 12(r15)
+	ldb r11, 12(r10)
 	# if 0, then empty entry
 	beq r11, r0, os_fork_found_empty_entry
 	# then look at next entry
 	addi r9, r9, 1
-	addi r15, r10, 16
+	addi r10, r10, 16
 	br os_fork_find_empty_entry
 
 os_fork_found_empty_entry:
@@ -1150,7 +1174,7 @@ os_fork_found_empty_entry:
 
 	# add new entry for child process
 	# set process id
-	stw r8, PROCESS_TABLE_ID(r15)
+	stw r8, PROCESS_TABLE_ID(r10)
 	# pc set below
 	# set stack pointer
 	# point to top
@@ -1160,7 +1184,7 @@ os_fork_found_empty_entry:
 	# base + offset
 	add r13, r19, r13
 	# save stack pointer
-	stw r13, PROCESS_TABLE_STACK(r15)
+	stw r13, PROCESS_TABLE_STACK(r10)
 	# set status running
 	# r2 used as temporary register
 	movi r2, 1
@@ -1182,7 +1206,7 @@ os_fork_found_empty_entry:
 	stw r7, 28(r12)
 	stw r8, 32(r12)
 	stw r9, 36(r12)
-	stw r15, 40(r12)
+	stw r10, 40(r12)
 	stw r11, 44(r12)
 	stw r12, 48(r12)
 	stw r13, 52(r12)
@@ -1209,7 +1233,7 @@ os_fork_found_empty_entry:
 	# when the os switches to the child, it will reload the registers, and continue executing (re-execute next instruction, harmless re-write)
 	# it will have reloaded 0 as the return value, and return from fork
 	nextpc r14
-	stw r14, PROCESS_TABLE_PC(r15)
+	stw r14, PROCESS_TABLE_PC(r10)
 
 	br os_fork_epilogue
 
@@ -1220,7 +1244,7 @@ os_fork_out_of_processes:
 os_fork_epilogue:
 	ldw r8, 0(sp)
 	ldw r9, 4(sp)
-	ldw r15, 8(sp)
+	ldw r10, 8(sp)
 	ldw r11, 12(sp)
 	ldw r12, 16(sp)
 	ldw r13, 20(sp)
@@ -1270,7 +1294,7 @@ os_sleep:
 	stw r7, 28(et)
 	stw r8, 32(et)
 	stw r9, 36(et)
-	stw r15, 40(et)
+	stw r10, 40(et)
 	stw r11, 44(et)
 	stw r12, 48(et)
 	stw r13, 52(et)
@@ -1330,7 +1354,7 @@ os_sleep_epilogue:
 	ldw r7, 28(et)
 	ldw r8, 32(et)
 	ldw r9, 36(et)
-	ldw r15, 40(et)
+	ldw r10, 40(et)
 	ldw r11, 44(et)
 	ldw r12, 48(et)
 	ldw r13, 52(et)
@@ -1443,15 +1467,21 @@ os_tick_epilogue:
  * When called from the interrupt, the interrupt handler will return to that process
  * OS functions that call this should do update registers, and do `mov ra, ea` before they return
  *
- * r8: starting process table index (current process table index + 1)
+ * TODO: r8 and r14 duplication
+ *
+ * r8: current process table index
  * r9: process table index inspecting
  * r10: address in process table for next process
  * r11: loaded status byte
  * r12: temporary register for computing addresses
  * r13: loaded register from process registers tmp
- * r14: current process table index
+ * r14: next process id
  * r15: address in process registers
  * r16: address in process table for current process
+ * r17: counter looping through processes
+ * r18: process current
+ * r19: leds green
+ * r20: process table max
  * r21: process registers
  * r22: 1
  * r23: process table
@@ -1460,7 +1490,7 @@ os_schedule:
 	addi sp, sp, -68
 	stw r8, 0(sp)
 	stw r9, 4(sp)
-	stw r15, 8(sp)
+	stw r10, 8(sp)
 	stw r11, 12(sp)
 	stw r12, 16(sp)
 	stw r13, 20(sp)
@@ -1479,15 +1509,18 @@ os_schedule:
 	movia r23, PROCESS_TABLE
 	movi r22, 1
 	movia r21, PROCESS_REGISTERS
+	movia r20, PROCESS_TABLE_MAX
+	movia r19, LEDS_GREEN
+	movia r18, PROCESS_CURRENT
 
 	call os_process_current
 	mov r4, r2
 	call os_process_table_index
 	mov r8, r2
-	addi r8, r8, 1
-	mov r9, r8
-	mov r15, r23
-	mov r14, r2
+	# start inspecting the next entry
+	addi r9, r8, 1
+	# initialize counter
+	mov r17, r0
 
 os_schedule_find_process:
 	# NOTE: implementation detail
@@ -1495,23 +1528,24 @@ os_schedule_find_process:
 	#       and 128 is a power of 2, we can simulate mod (remainder) with a bitwise and with 127
 	andi r9, r9, 127
 	# index * size
-	muli r12, r9, 16
+	muli r12, r9, PROCESS_TABLE_ENTRY_BYTES
 	# base + offset
-	add r15, r23, r12
+	add r10, r23, r12
 	# checked all entries
-	beq r9, r8, os_schedule_no_running_processes
+	beq r17, r20, os_schedule_no_running_processes
 	# load status byte
-	ldb r11, PROCESS_TABLE_STATUS(r15)
+	ldb r11, PROCESS_TABLE_STATUS(r10)
 	# if status byte is 1
 	beq r11, r22, os_schedule_found_running_process
-	# then increment counter
+	# then increment index into process table and counter
 	addi r9, r9, 1
+	addi r17, r17, 1
 	# loop
 	br os_schedule_found_running_process
 
 os_schedule_found_running_process:
 	# offset = index * size
-	muli r12, r14, 16
+	muli r12, r8, PROCESS_TABLE_ENTRY_BYTES
 	# address = base + offset
 	add r16, r23, r12
 	# save current process pc in process table
@@ -1520,8 +1554,15 @@ os_schedule_found_running_process:
 	# load next process pc from process table
 	ldw ea, PROCESS_TABLE_PC(r10)
 
+	# get next process id
+	ldw r14, PROCESS_TABLE_ID(r10)
+	# set process current
+	stw r14, 0(r18)
+	# set green leds
+	stw r14, 0(r19)
+
 	# 32 registers * 4 bytes
-	muli r12, r14, 128
+	muli r12, r8, 128
 	# address = base + offset
 	add r15, r21, r12
 
@@ -1672,7 +1713,7 @@ os_schedule_no_running_processes:
 os_schedule_epilogue:
 	ldw r8, 0(sp)
 	ldw r9, 4(sp)
-	ldw r15, 8(sp)
+	ldw r10, 8(sp)
 	ldw r11, 12(sp)
 	ldw r12, 16(sp)
 	ldw r13, 20(sp)
@@ -2262,7 +2303,7 @@ os_putchar:
 	stw r7, 28(et)
 	stw r8, 32(et)
 	stw r9, 36(et)
-	stw r15, 40(et)
+	stw r10, 40(et)
 	stw r11, 44(et)
 	stw r12, 48(et)
 	stw r13, 52(et)
@@ -2325,7 +2366,7 @@ os_putchar_epilogue:
 	ldw r7, 28(et)
 	ldw r8, 32(et)
 	ldw r9, 36(et)
-	ldw r15, 40(et)
+	ldw r10, 40(et)
 	ldw r11, 44(et)
 	ldw r12, 48(et)
 	ldw r13, 52(et)
@@ -2438,6 +2479,8 @@ os_io_yoloq_dequeue:
  * @param char
  */
 os_putchar_sync:
+	wrctl ctl0, r0
+
 	addi sp, sp, -8
 	stw r8, 0(sp)
 	stw r23, 4(sp)
@@ -2456,6 +2499,9 @@ os_putchar_sync_epilogue:
 	ldw r8, 0(sp)
 	ldw r23, 4(sp)
 	addi sp, sp, 8
+
+	movi et, 1
+	wrctl ctl0, et
 	ret
 
 os_printstr_sync:
@@ -2517,6 +2563,32 @@ os_memcpy_epilogue:
 	ldw r10, 8(sp)
 	addi sp, sp, 12
 	ret
+
+/*
+ * r8: counter
+ * r9: address
+ * @param address
+ * @param value
+ * @param num bytes
+ */
+os_memset:
+	addi sp, sp, -8
+	stw r8, 0(sp)
+	stw r9, 4(sp)
+
+	mov r8, r0
+
+os_memset_loop:
+	beq r8, r6, os_memset_epilogue
+	add r9, r4, r8
+	stb r5, 0(r9)
+	addi r8, r8, 1
+	br os_memset_loop
+
+os_memset_epilogue:
+	ldw r8, 0(sp)
+	ldw r9, 4(sp)
+	addi sp, sp, 8
 
 /*
  * r8: counter
