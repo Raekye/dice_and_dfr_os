@@ -5,7 +5,6 @@
  *
  * TODO: vechs check for failed malloc
  * TODO: fork pre-increments process num
- * TODO: can load into same register? (e.g. ldw r2, 0(r2))
  * TODO: system call disable interrupts
  * TODO: handle no processes in scheduler?
  * TODO: parent process ID
@@ -20,6 +19,9 @@
  *   - r3 is return (most significant bits) (caller-saved)
  *   - r4-r7 are first 16 bytes of arguments (callee-saved, preferably avoid modifying)
  *   - r8-r23 (16 registers, 64 bytes) are general purpose (callee-saved)
+ *   - et (r24) is exception temporary (used by the interrupt handler and OS in general)
+ *   - sp (r27) is the stack pointer
+ *   - ea (r29) is exception return address (used by the interrupt handler and OS in general)
  *   - ra (r31) is return address (callee-saved)
  *   - Variables start at r8, values (constants) start at r23
  * - Heavily comment code (explain "what" and "why")
@@ -29,10 +31,10 @@
  *
  * ## Shoutouts
  * - Susan (nasus -> the late game terror -> VM)
- * - Skye (homage -> editor)
+ * - Skye (editor)
  * - The Master
  * - The Rational (the rational mind *maps* reality)
- * - Romanian innovations (homage -> filesystem)
+ * - Romanian innovations (filesystem)
  * - bdel (homage -> shell)
  * - Vechs (vector -> vec -> vecs)
  *
@@ -1262,13 +1264,118 @@ os_fork_epilogue:
 
 /*
  * Terminate own process
+ * r8: current process id
+ * r9: current process table entry
+ * r10: load/store data for release_foreground
+ * r23: process foreground
  */
 os_mort:
-	# TODO: cycle through processes, update children's parent IDs
-	# TODO: release foreground to parent, if has
-	# TODO: clear own process table entry
-	# TODO: execute scheduler
-	ret
+	wrctl ctl0, r0
+
+	addi sp, sp, -0
+
+	movia r23, PROCESS_FOREGROUND
+	movia r22, PROCESS_TABLE_MAX
+
+	# get process id
+	call os_process_current
+	mov r8, r2
+	# get process table address
+	mov r4, r2
+	call os_process_table_entry
+	mov r9, r2
+
+	# get parent
+	ldw r10, PROCESS_TABLE_PARENT(r9)
+	# initialize counter for adopting children
+	mov r12, r0
+
+os_mort_release_foreground:
+	# check foreground process
+	ldw r11, 0(r23)
+	beq r8, r11, os_mort_had_foreground
+	# next phase
+	br os_mort_adopt_children
+
+os_mort_had_foreground:
+	# delegate foreground to parent
+	stw r11, 0(r23)
+	# next phase
+	br os_mort_adopt_children
+
+os_mort_adopt_children:
+	# checked all entries in process table, next phase
+	beq r12, r22, os_mort_return_to_nothing
+
+	# get inspecting process table entry
+	mov r4, r12
+	call os_process_table_entry_from_index
+	# r2 used here; is the process table entry address
+
+	ldw r11, PROCESS_TABLE_PARENT(r2)
+	# if my child
+	beq r11, r8, os_mort_adopt_children_wait_for_me
+	# then keep searching
+	br os_mort_adopt_children_loop_back
+
+os_mort_adopt_children_wait_for_me:
+	# update child's parent to be my parent
+	stw r10, PROCESS_TABLE_PARENT(r2)
+	br os_mort_adopt_children_loop_back
+
+os_mort_adopt_children_loop_back:
+	addi r12, r12, 1
+	br os_mort_adopt_children
+
+os_mort_return_to_nothing:
+	# zero entry in process table
+	mov r4, r9
+	mov r5, r0
+	movia r6, PROCESS_TABLE_ENTRY_BYTES
+	call os_memset
+
+os_mort_the_cycle_of_life:
+	call os_schedule
+
+os_mort_epilogue:
+	movia et, PROCESS_REGISTERS_TMP
+	ldw r1, 4(et)
+	ldw r2, 8(et)
+	ldw r3, 12(et)
+	ldw r4, 16(et)
+	ldw r5, 20(et)
+	ldw r6, 24(et)
+	ldw r7, 28(et)
+	ldw r8, 32(et)
+	ldw r9, 36(et)
+	ldw r10, 40(et)
+	ldw r11, 44(et)
+	ldw r12, 48(et)
+	ldw r13, 52(et)
+	ldw r14, 56(et)
+	ldw r15, 60(et)
+	ldw r16, 64(et)
+	ldw r17, 68(et)
+	ldw r18, 72(et)
+	ldw r19, 76(et)
+	ldw r20, 80(et)
+	ldw r21, 84(et)
+	ldw r22, 88(et)
+	ldw r23, 92(et)
+	# NOTE: restoring `et` is superfluous
+	ldw r24, 96(et)
+	ldw r25, 100(et)
+	ldw r26, 104(et)
+	ldw r27, 108(et)
+	ldw r28, 112(et)
+	# don't overwrite `ea`
+	#ldw r29, 116(et)
+	ldw r30, 120(et)
+	ldw r31, 124(et)
+
+	movi et, 1
+	wrctl ctl0, et
+	jmp ea
 
 /*
  * Delegates forground to child process
@@ -1339,7 +1446,6 @@ os_sleep:
 	stw r9, 0(r2)
 
 	call os_schedule
-	mov ra, ea
 
 os_sleep_epilogue:
 	movia et, PROCESS_REGISTERS_TMP
@@ -1372,13 +1478,14 @@ os_sleep_epilogue:
 	ldw r26, 104(et)
 	ldw r27, 108(et)
 	ldw r28, 112(et)
-	ldw r29, 116(et)
+	# don't overwrite `ea`
+	#ldw r29, 116(et)
 	ldw r30, 120(et)
 	ldw r31, 124(et)
 
 	movi et, 1
 	wrctl ctl0, et
-	ret
+	jmp ea
 
 /*
  * Decrements sleep time remaining of all processes
@@ -1457,21 +1564,18 @@ os_tick_epilogue:
  * Cycles through process table and switches to another process
  * Starts looking in the process table at the current process table index + 1
  *
- * Callers of this function should save the current executing process' registers into `PROCESS_REGISTERS_TMP`, and do `mov ea, ra`
- * This function will save those registers into the process table
- * This function will save the next process' registers (from the process table) into `PROCESS_REGISTERS_TMP`
- *
- * This function sets `ea` to be the `pc` of the next process to be run
- * When called from the interrupt, the interrupt handler will return to that process
- * OS functions that call this should do update registers, and do `mov ra, ea` before they return
- *
- * TODO: r8 and r14 duplication
+ * - callers (before): save current executing process' registers into `PROCESS_REGISTERS_TMP`
+ * - this function will save those registers into the process table
+ * - this function will save the next process' registers (from the process table) into `PROCESS_REGISTERS_TMP`
+ * - this function will set `ea` to be the `pc` of the next process to run
+ * - callers (after): restore registers from `PROCESS_REGISTERS_TMP`, except `ea`
+ * - callers (after): do `jmp ea`
  *
  * r8: current process table index
  * r9: process table index inspecting
  * r10: address in process table for next process
  * r11: loaded status byte
- * r12: temporary register for computing addresses
+ * r12: temporary register for computing addresses, current process status
  * r13: loaded register from process registers tmp
  * r14: next process id
  * r15: address in process registers
@@ -1542,23 +1646,21 @@ os_schedule_find_process:
 	br os_schedule_find_process
 
 os_schedule_found_running_process:
+	# compute current process table entry
 	# offset = index * size
 	muli r12, r8, PROCESS_TABLE_ENTRY_BYTES
 	# address = base + offset
 	add r16, r23, r12
+
+	# horatio, am I slain?
+	ldw r12, PROCESS_TABLE_STATUS(r16)
+	beq r12, r0, os_schedule_summon_next_process
+	# not dead yet
+
 	# save current process pc in process table
 	stw ea, PROCESS_TABLE_PC(r16)
 
-	# load next process pc from process table
-	ldw ea, PROCESS_TABLE_PC(r10)
-
-	# get next process id
-	ldw r14, PROCESS_TABLE_ID(r10)
-	# set process current
-	stw r14, 0(r18)
-	# set green leds
-	stw r14, 0(r19)
-
+	# copy current process' registers, saved in process registers tmp, to its entry in process registers
 	# 32 registers * 4 bytes
 	muli r12, r8, 128
 	# address = base + offset
@@ -1566,7 +1668,6 @@ os_schedule_found_running_process:
 
 	movia et, PROCESS_REGISTERS_TMP
 
-	# copy current process' registers, saved in process registers tmp, to its entry in process registers
 	ldw r13, 4(et)
 	stw r13, 4(r15)
 	ldw r13, 8(et)
@@ -1630,6 +1731,18 @@ os_schedule_found_running_process:
 	ldw r13, 124(et)
 	stw r13, 124(r15)
 
+os_schedule_summon_next_process:
+	# load next process pc from process table
+	ldw ea, PROCESS_TABLE_PC(r10)
+
+	# get next process id
+	ldw r14, PROCESS_TABLE_ID(r10)
+	# set process current
+	stw r14, 0(r18)
+	# set green leds
+	stw r14, 0(r19)
+
+	# copy next process' registers to process registers tmp
 	# 32 registers * 4 bytes
 	muli r12, r9, 128
 	# address = base + offset
@@ -1637,7 +1750,6 @@ os_schedule_found_running_process:
 
 	movia r15, PROCESS_REGISTERS_TMP
 
-	# copy next process' registers to process registers tmp
 	# the ldw/stw code is the same as above; et and r15 are switched
 	ldw r13, 4(et)
 	stw r13, 4(r15)
@@ -2351,7 +2463,6 @@ os_putchar:
 
 	addi sp, sp, 4
 	call os_schedule
-	mov ra, ea
 
 os_putchar_epilogue:
 	movia et, PROCESS_REGISTERS_TMP
@@ -2384,13 +2495,14 @@ os_putchar_epilogue:
 	ldw r26, 104(et)
 	ldw r27, 108(et)
 	ldw r28, 112(et)
-	ldw r29, 116(et)
+	# don't overwrite `ea`
+	#ldw r29, 116(et)
 	ldw r30, 120(et)
 	ldw r31, 124(et)
 
 	movi et, 1
 	wrctl ctl0, et
-	ret
+	jmp ea
 
 /*
  * r4: modified
@@ -2502,6 +2614,11 @@ os_putchar_sync_epilogue:
 	wrctl ctl0, et
 	ret
 
+/*
+ * r4: modified
+ * r8: pointer to current char
+ * @param char*
+ */
 os_printstr_sync:
 	addi sp, sp, -12
 	stw r4, 0(sp)
