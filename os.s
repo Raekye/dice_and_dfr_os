@@ -313,12 +313,10 @@ ISR_EPILOGUE:
 /* TEXT */
 .text
 interrupt_handle_timer:
+	# TODO: don't need to save r4
 	addi sp, sp, -8
 	stw r4, 0(sp)
 	stw ra, 4(sp)
-
-	movia r4, AYY_LMAO
-	call os_printstr_sync
 
 	# tock... did I do good?
 	call os_tick
@@ -991,7 +989,7 @@ os_process_table_index_find_entry:
 	beq r10, r4, os_process_table_index_found_entry
 	# then not equal, increment counter, increment address/pointer
 	addi r8, r8, 1
-	addi r9, r9, 16
+	addi r9, r9, PROCESS_TABLE_ENTRY_BYTES
 	# loop
 	br os_process_table_index_find_entry
 
@@ -1523,6 +1521,8 @@ os_schedule:
 	mov r17, r0
 
 os_schedule_find_process:
+	# checked all entries
+	beq r17, r20, os_schedule_no_running_processes
 	# NOTE: implementation detail
 	#       because there are 128 entries in the process table
 	#       and 128 is a power of 2, we can simulate mod (remainder) with a bitwise and with 127
@@ -1531,8 +1531,6 @@ os_schedule_find_process:
 	muli r12, r9, PROCESS_TABLE_ENTRY_BYTES
 	# base + offset
 	add r10, r23, r12
-	# checked all entries
-	beq r17, r20, os_schedule_no_running_processes
 	# load status byte
 	ldb r11, PROCESS_TABLE_STATUS(r10)
 	# if status byte is 1
@@ -1541,7 +1539,7 @@ os_schedule_find_process:
 	addi r9, r9, 1
 	addi r17, r17, 1
 	# loop
-	br os_schedule_found_running_process
+	br os_schedule_find_process
 
 os_schedule_found_running_process:
 	# offset = index * size
