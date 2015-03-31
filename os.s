@@ -94,6 +94,11 @@
  *   - bytes 0-3: size of block (0 if free)
  *   - bytes 4-`n + 3`: block data (0 if free)
  * - on free, 0 bytes
+ *
+ * ## Error codes
+ * - Create a `<func_name>_badness` label that sets the error code in `r4` and `br os_badness`
+ * 1: no running processes
+ * 2: pop/shift empty
  */
 
 /*
@@ -338,7 +343,15 @@ interrupt_handle_jtag_uart_epilogue:
 seog_ti_os:
 	movia sp, 0x007FFFFC
 
-	call os_badness
+	movi r4, 4
+	call os_vechs_new
+
+	mov r4, r2
+	movi r5, 1
+	call os_vechs_push
+
+	movi r5, 2
+	call os_vechs_push
 
 	br have_fun_looping
 
@@ -353,7 +366,7 @@ seog_ti_os:
 
 	# enable jtag uart interrupts
 	movia r8, JTAG_UART
-	movi r9, 0x3 # write interrupt, read interrupt bits
+	movi r9, 0x1 # disable write interrupt, enable read interrupt bits
 	stwio r9, JTAG_UART_CTRL(r8)
 
 	# enable irq interrupts
@@ -1642,6 +1655,7 @@ os_schedule_found_running_process:
 	br os_schedule_epilogue
 
 os_schedule_no_running_processes:
+	movi r4, 1
 	br os_badness
 
 os_schedule_epilogue:
@@ -1935,7 +1949,7 @@ os_vechs_push_epilogue:
 	mov r5, r6
 	ldw r6, 0(sp)
 	ldw ra, 4(sp)
-	addi sp, sp, 4
+	addi sp, sp, 8
 	ret
 
 /*
@@ -1979,17 +1993,19 @@ os_vechs_shift:
 	call os_vechs_size
 	mov r9, r2
 
+	beq r9, r0, os_vechs_shift_badness
+
 	# get head, save return value
 	mov r5, r0
 	call os_vechs_get
 	mov r8, r2
 
-	# r4 is the index of the element we are moving from
+	# r5 is the index of the element we are moving from
 	movi r5, 1
 
 os_vechs_shift_loop:
 	# while index < length
-	bge r5, r9, os_vechs_shift_epilogue
+	bge r5, r9, os_vechs_shift_loop_done
 	# get element
 	call os_vechs_get
 	# argument 3 for set
@@ -1999,7 +2015,7 @@ os_vechs_shift_loop:
 	call os_vechs_set
 	# index = index + 1 (we subtracted 1 above)
 	addi r5, r5, 2
-	br os_vechs_shift_loop_done
+	br os_vechs_shift_loop
 
 os_vechs_shift_loop_done:
 	# remove last element
@@ -2014,6 +2030,10 @@ os_vechs_shift_epilogue:
 	ldw ra, 16(sp)
 	addi sp, sp, 20
 	ret
+
+os_vechs_shift_badness:
+	movi r4, 2
+	br os_badness
 
 /*
  * r5: modified
@@ -2038,7 +2058,7 @@ os_vechs_unshift:
 	call os_vechs_push
 
 	# r5 is the index we are moving to
-	mov r5, r2
+	mov r5, r8
 
 os_vechs_unshift_loop:
 	# while index > 0
@@ -2052,11 +2072,12 @@ os_vechs_unshift_loop:
 	call os_vechs_set
 	# decrement index
 	addi r5, r5, -1
+	br os_vechs_unshift_loop
 
 os_vechs_unshift_loop_done:
 	# get budgie
 	ldw r6, 0(sp)
-	mov r5, r0
+	# r5 already 0
 	# set first element
 	call os_vechs_set
 
@@ -2136,7 +2157,7 @@ os_vechs_normalize_epilogue:
 	ldw r9, 12(sp)
 	ldw r10, 16(sp)
 	ldw r11, 20(sp)
-	stw ra, 24(sp)
+	ldw ra, 24(sp)
 	addi sp, sp, 28
 	ret
 
@@ -2483,8 +2504,7 @@ os_pause_epilogue:
 os_badness:
 	wrctl ctl0, r0
 	movia r23, LEDS_RED
-	movi r8, 1
-	stw r8, 0(r23)
+	stw r4, 0(r23)
 	br have_fun_looping
 
 have_fun_looping:
