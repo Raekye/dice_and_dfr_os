@@ -141,7 +141,7 @@
 .equ TIMER_CTRL, 4
 .equ TIMER_PERIOD_L, 8
 .equ TIMER_PERIOD_H, 12
-.equ CYCLES_PER_HUNDRED_MILLISECONDS, 5000000
+.equ CYCLES_PER_HUNDRED_MILLISECONDS, 50000000
 
 /* DATA */
 .data
@@ -199,14 +199,22 @@ EPSILON:
 	.string ""
 
 FOO:
-	.string "foo"
+	.string "foo\n"
+
+BUKKITS_OF_FUN:
+	.string "fun\n"
+
+AYY_LMAO:
+	.string "a\n"
+
+HMMM:
+	.string "hmmm\n"
 
 /* INTERRUPTS */
 .section .exceptions, "ax"
 ISR:
 	# fix pc
 	addi ea, ea, -4
-	eret
 
 	# save registers
 	movia et, PROCESS_REGISTERS_TMP
@@ -303,17 +311,24 @@ ISR_EPILOGUE:
 /* TEXT */
 .text
 interrupt_handle_timer:
-	addi sp, sp, -4
-	stw ra, 0(sp)
+	addi sp, sp, -8
+	stw r4, 0(sp)
+	stw ra, 4(sp)
+
+	movia r4, AYY_LMAO
+	call os_printstr_sync
 
 	# tock... did I do good?
 	call os_tick
 
 	# aww yis
-	call os_schedule
+	#call os_schedule
 
-	ldw ra, 0(sp)
-	addi sp, sp, 4
+	call os_printstr_sync
+
+	ldw r4, 0(sp)
+	ldw ra, 4(sp)
+	addi sp, sp, 8
 	ret
 
 interrupt_handle_jtag_uart:
@@ -343,18 +358,6 @@ interrupt_handle_jtag_uart_epilogue:
 seog_ti_os:
 	movia sp, 0x007FFFFC
 
-	movi r4, 4
-	call os_vechs_new
-
-	mov r4, r2
-	movi r5, 1
-	call os_vechs_push
-
-	movi r5, 2
-	call os_vechs_push
-
-	br have_fun_looping
-
 	# enable timer interrupts
 	movia r8, TIMER
 	movi r9, %hi(CYCLES_PER_HUNDRED_MILLISECONDS)
@@ -383,6 +386,7 @@ seog_ti_os:
 	movia r23, PROCESS_IO_YOLOQ
 	stw r2, 0(r23)
 
+	/*
 	# root dir
 	mov r4, r0
 	movia r5, EPSILON
@@ -391,10 +395,12 @@ seog_ti_os:
 	# foo
 	movia r5, FOO
 	call os_mkdir
+	*/
 
 	movia r8, PROCESS_TABLE
 	movia r10, PROCESS_STACKS
 	movia r23, PROCESS_STACKS_BYTES
+	# stack starts at top address
 	add r10, r10, r23
 
 	# shell process
@@ -412,13 +418,13 @@ seog_ti_os:
 	stw r0, PROCESS_TABLE_PARENT(r8)
 
 	# bombadil process
-	addi r8, r8, 16
+	addi r8, r8, 20
 	add r10, r10, r23
 	# process id
 	movi r9, 1
 	stw r9, 0(r8)
 	# pc
-	movia r9, have_fun_looping
+	movia r9, os_bombadil
 	stw r9, PROCESS_TABLE_PC(r8)
 	# stack offset
 	stw r10, PROCESS_TABLE_STACK(r8)
@@ -428,7 +434,12 @@ seog_ti_os:
 	# parent id
 	stw r0, PROCESS_TABLE_PARENT(r8)
 
-	br have_fun_looping
+	# set shell to be running process
+	movia r23, PROCESS_CURRENT
+	stw r0, 0(r23)
+	movia r23, PROCESS_FOREGROUND
+	stw r0, 0(r23)
+	br os_bdel
 
 /* romania */
 /*
@@ -1361,14 +1372,14 @@ os_sleep_epilogue:
  */
 os_tick:
 	addi sp, sp, -32
-	ldw r4, 0(sp)
-	ldw r8, 4(sp)
-	ldw r9, 8(sp)
-	ldw r10, 12(sp)
-	ldw r11, 16(sp)
-	ldw r22, 20(sp)
-	ldw r23, 24(sp)
-	ldw ra, 28(sp)
+	stw r4, 0(sp)
+	stw r8, 4(sp)
+	stw r9, 8(sp)
+	stw r10, 12(sp)
+	stw r11, 16(sp)
+	stw r22, 20(sp)
+	stw r23, 24(sp)
+	stw ra, 28(sp)
 
 	movia r23, PROCESS_SLEEPING
 	movia r22, PROCESS_TABLE_MAX
@@ -2226,6 +2237,9 @@ os_strlen_epilogue:
  * Should never terminate
  */
 os_bdel:
+	movia r4, FOO
+	call os_printstr_sync
+	call os_pause
 	br os_bdel
 
 /* hmmm */
@@ -2441,7 +2455,29 @@ os_putchar_sync_poll:
 os_putchar_sync_epilogue:
 	ldw r8, 0(sp)
 	ldw r23, 4(sp)
-	addi sp, sp, 0
+	addi sp, sp, 8
+	ret
+
+os_printstr_sync:
+	addi sp, sp, -12
+	stw r4, 0(sp)
+	stw r8, 4(sp)
+	stw ra, 8(sp)
+
+	mov r8, r4
+
+os_printstr_sync_loop:
+	ldb r4, 0(r8)
+	beq r4, r0, os_printstr_sync_epilogue
+	call os_putchar_sync
+	addi r8, r8, 1
+	br os_printstr_sync_loop
+
+os_printstr_sync_epilogue:
+	ldw r4, 0(sp)
+	ldw r8, 4(sp)
+	ldw ra, 8(sp)
+	addi sp, sp, 12
 	ret
 
 /*
@@ -2482,13 +2518,18 @@ os_memcpy_epilogue:
 	addi sp, sp, 12
 	ret
 
+/*
+ * r8: counter
+ * r9: upper bound
+ * Synchronous pause for ~1 second
+ */
 os_pause:
 	addi sp, sp, -8
 	stw r8, 0(sp)
 	stw r9, 4(sp)
 
 	mov r8, r0
-	movia r9, 50000000
+	movia r9, 10000000
 
 os_pause_loop:
 	beq r8, r9, os_pause_epilogue
@@ -2509,3 +2550,9 @@ os_badness:
 
 have_fun_looping:
 	br have_fun_looping
+
+os_bombadil:
+	movia r4, BUKKITS_OF_FUN
+	call os_printstr_sync
+	call os_pause
+	br os_bombadil
