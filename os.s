@@ -3,20 +3,16 @@
  * # Richard and dfr OS
  * Hmmmmmm.
  *
- * TODO: vechs check for failed malloc
  * TODO: fork pre-increments process num
- * TODO: system call disable interrupts
- * TODO: handle no processes in scheduler?
- * TODO: parent process ID
- * TODO: modifying foreground process
- * TODO: use PROCESS_TABLE_*(r*) instead of hardcoded values
- * TODO: protocol after calling os_schedule - overwriting ea
+ * TODO: os functions like readchar/putchar, getting rescheduled?
+ * TODO: refactor system calls epilogue?
+ * TODO: read queue
  *
  * ## Conventions
  * - Most registers are callee-saved; I find this easier to work with
  *   - r0 is zero (hardware)
- *   - r2 is return (least significant bits) (caller-saved)
- *   - r3 is return (most significant bits) (caller-saved)
+ *   - r2 is return (least significant bits) (caller-saved), could be used as temporary register
+ *   - r3 is return (most significant bits) (caller-saved), could be used as temporary register
  *   - r4-r7 are first 16 bytes of arguments (callee-saved, preferably avoid modifying)
  *   - r8-r23 (16 registers, 64 bytes) are general purpose (callee-saved)
  *   - et (r24) is exception temporary (used by the interrupt handler and OS in general)
@@ -102,6 +98,8 @@
  * - Create a `<func_name>_badness` label that sets the error code in `r4` and `br os_badness`
  * 1: no running processes
  * 2: pop/shift empty
+ * 3: out of process table entries
+ * 4: malloc oom
  */
 
 /*
@@ -213,6 +211,9 @@ AYY_LMAO:
 HMMM:
 	.string "hmmm\n"
 
+STR_NL:
+	.string "\n"
+
 /* INTERRUPTS */
 .section .exceptions, "ax"
 ISR:
@@ -261,8 +262,11 @@ ISR:
 
 	# check for jtag uart
 	rdctl et, ctl4
-	andi et, et, 0x10 # bit 8
+	andi et, et, 0x100 # bit 8
 	bne et, r0, ISR_HANDLE_JTAG_UART
+
+	# unknown interrupt
+	br ISR_EPILOGUE
 
 ISR_HANDLE_TIMER:
 	call interrupt_handle_timer
@@ -314,11 +318,12 @@ ISR_EPILOGUE:
 
 /* TEXT */
 .text
+
+/*
+ */
 interrupt_handle_timer:
-	# TODO: don't need to save r4
-	addi sp, sp, -8
-	stw r4, 0(sp)
-	stw ra, 4(sp)
+	addi sp, sp, -4
+	stw ra, 0(sp)
 
 	# tock... did I do good?
 	call os_tick
@@ -326,32 +331,68 @@ interrupt_handle_timer:
 	# aww yis
 	call os_schedule
 
-	ldw r4, 0(sp)
-	ldw ra, 4(sp)
-	addi sp, sp, 8
+	ldw ra, 0(sp)
+	addi sp, sp, 4
 	ret
 
+/*
+ * r4: modified
+ * r8: jtag uart
+ * r9: read byte
+ * r10: used to check which interrupt pending
+ * r11: foreground process id
+ * r12: foreground process entry
+ * r13: foreground process registers
+ */
 interrupt_handle_jtag_uart:
-	addi sp, sp, -0
+	addi sp, sp, -4
+	stw ra, 0(sp)
 
 	movia r8, JTAG_UART
 	ldwio r9, JTAG_UART_CTRL(r8)
-	andi r10, r9, 0x10 # bit 8, read interrupt pending
+	andi r10, r9, 0x100 # bit 8, read interrupt pending
 	bne r10, r0, interrupt_handle_jtag_uart_read
 	br interrupt_handle_jtag_uart_write
 
 interrupt_handle_jtag_uart_read:
+	# get data
+	ldbio r9, JTAG_UART_DATA(r8)
+
+	movia r23, PROCESS_FOREGROUND
+	movia r22, PROCESS_REGISTERS
+
+	# get foreground process id
+	ldw r11, 0(r23)
+
+	mov r4, r11
+	# get process table entry
+	call os_process_table_entry
+	mov r12, r2
+	# get process table registers
+	call os_process_table_registers
+	mov r13, r2
+
+	# update status running
+	movi r14, 1
+	stb r14, PROCESS_TABLE_STATUS(r12)
+
+	# save data in return register of process
+	stw r9, 8(r13)
+
+	# done
 	br interrupt_handle_jtag_uart_epilogue
 
 interrupt_handle_jtag_uart_write:
-	# for each space available
+	# TODO
 	# dequeue io yoloq
 	# write the byte
 	# update status byte
+	# disable write interrupts if queue empty
 	br interrupt_handle_jtag_uart_epilogue
 
 interrupt_handle_jtag_uart_epilogue:
-	addi sp, sp, 0
+	ldw ra, 0(sp)
+	addi sp, sp, 4
 	ret
 
 /* main */
@@ -427,6 +468,7 @@ seog_ti_os:
 	# set shell to be running process
 	movia r23, PROCESS_CURRENT
 	stw r0, 0(r23)
+	# set shell as foreground process
 	movia r23, PROCESS_FOREGROUND
 	stw r0, 0(r23)
 	# set stack pointer
@@ -449,7 +491,7 @@ seog_ti_os:
 	stwio r9, JTAG_UART_CTRL(r8)
 
 	# enable irq interrupts
-	movi r8, 0x11 # bit 8, 0
+	movi r8, 0x101 # bit 8, 0
 	wrctl ctl3, r8
 
 	# enable global interrupts
@@ -716,7 +758,7 @@ os_romania_read_block_chain_copy_block:
 	addi r11, r11, 1
 
 os_romania_read_block_chain_copy_block_done:
-	ldb r4, 2(sp)
+	ldb r4, 2(r9)
 	beq r4, r0, os_romania_read_block_chain_done
 	br os_romania_read_block_chain_handle_block
 
@@ -1013,6 +1055,24 @@ os_process_table_index_epilogue:
 	ret
 
 /*
+ * r23: process registers
+ * @param index
+ */
+os_process_table_registers:
+	addi sp, sp, -4
+	stw r23, 0(sp)
+
+	movia r23, PROCESS_REGISTERS
+	# index * size
+	muli r2, r4, 128
+	# base address + offset
+	add r2, r23, r2
+
+	ldw r23, 0(sp)
+	addi sp, sp, 4
+	ret
+
+/*
  * r23: process table
  * @param index
  */
@@ -1188,11 +1248,14 @@ os_fork_found_empty_entry:
 	# set status running
 	# r2 used as temporary register
 	movi r2, 1
-	stb r2, PROCESS_TABLE_STATUS(sp)
+	stb r2, PROCESS_TABLE_STATUS(r10)
+	# save parent process
+	stw r4, PROCESS_TABLE_PARENT(r10)
 
 	# save registers for child process
 	# offset into registers
-	muli r12, r9, 32
+	# 32 registers * 4 bytes
+	muli r12, r9, 128
 	# address = base address + offset
 	add r12, r20, r12
 
@@ -1238,8 +1301,8 @@ os_fork_found_empty_entry:
 	br os_fork_epilogue
 
 os_fork_out_of_processes:
-	movi r2, -1
-	br os_fork_epilogue
+	movi r4, 3
+	br os_badness
 
 os_fork_epilogue:
 	ldw r8, 0(sp)
@@ -1389,6 +1452,7 @@ os_foreground_delegate:
  */
 os_sleep:
 	wrctl ctl0, r0
+	movia et, os_sleep_afterstory
 	movia et, PROCESS_REGISTERS_TMP
 	stw r1, 4(et)
 	stw r2, 8(et)
@@ -1487,6 +1551,9 @@ os_sleep_epilogue:
 	wrctl ctl0, et
 	jmp ea
 
+os_sleep_afterstory:
+	ret
+
 /*
  * Decrements sleep time remaining of all processes
  * If dropped to 0, update sleeping process to running
@@ -1564,7 +1631,8 @@ os_tick_epilogue:
  * Cycles through process table and switches to another process
  * Starts looking in the process table at the current process table index + 1
  *
- * - callers (before): save current executing process' registers into `PROCESS_REGISTERS_TMP`
+ * - callers (start): save current executing process' registers into `PROCESS_REGISTERS_TMP`
+ * - callers (before): save "next pc" for current process in `ea` (typically the "afterstory", which just returns)
  * - this function will save those registers into the process table
  * - this function will save the next process' registers (from the process table) into `PROCESS_REGISTERS_TMP`
  * - this function will set `ea` to be the `pc` of the next process to run
@@ -1947,8 +2015,8 @@ os_malloc_found_sufficient_block:
 	br os_malloc_epilogue
 
 os_malloc_oom:
-	mov r2, r0
-	br os_malloc_epilogue
+	movi r4, 4
+	br os_badness
 
 os_malloc_epilogue:
 	ldw r4, 0(sp)
@@ -2388,10 +2456,112 @@ os_strlen_epilogue:
  * Should never terminate
  */
 os_bdel:
-	movia r4, FOO
+	call os_readchar
+	mov r8, r2
+
+
+os_bdel_hm:
+	mov r4, r8
+	call os_putchar_sync
+	movia r4, STR_NL
 	call os_printstr_sync
 	call os_pause
-	br os_bdel
+	br os_bdel_hm
+
+/*
+ * r4: modified
+ * r8: 4
+ */
+os_readchar:
+	wrctl ctl0, r0
+	movia ea, os_readchar_afterstory
+	movia et, PROCESS_REGISTERS_TMP
+	stw r1, 4(et)
+	stw r2, 8(et)
+	stw r3, 12(et)
+	stw r4, 16(et)
+	stw r5, 20(et)
+	stw r6, 24(et)
+	stw r7, 28(et)
+	stw r8, 32(et)
+	stw r9, 36(et)
+	stw r10, 40(et)
+	stw r11, 44(et)
+	stw r12, 48(et)
+	stw r13, 52(et)
+	stw r14, 56(et)
+	stw r15, 60(et)
+	stw r16, 64(et)
+	stw r17, 68(et)
+	stw r18, 72(et)
+	stw r19, 76(et)
+	stw r20, 80(et)
+	stw r21, 84(et)
+	stw r22, 88(et)
+	stw r23, 92(et)
+	# NOTE: saving `et` is superfluous
+	stw r24, 96(et)
+	stw r25, 100(et)
+	stw r26, 104(et)
+	stw r27, 108(et)
+	stw r28, 112(et)
+	stw r29, 116(et)
+	stw r30, 120(et)
+	stw r31, 124(et)
+
+	# get current process id
+	call os_process_current
+	# get process table entry offset
+	mov r4, r2
+	call os_process_table_entry
+	# set status byte to io reading
+	movi r8, 4
+	stb r8, PROCESS_TABLE_STATUS(r2)
+
+	call os_schedule
+
+os_readchar_epilogue:
+	movia et, PROCESS_REGISTERS_TMP
+	ldw r1, 4(et)
+	ldw r2, 8(et)
+	ldw r3, 12(et)
+	ldw r4, 16(et)
+	ldw r5, 20(et)
+	ldw r6, 24(et)
+	ldw r7, 28(et)
+	ldw r8, 32(et)
+	ldw r9, 36(et)
+	ldw r10, 40(et)
+	ldw r11, 44(et)
+	ldw r12, 48(et)
+	ldw r13, 52(et)
+	ldw r14, 56(et)
+	ldw r15, 60(et)
+	ldw r16, 64(et)
+	ldw r17, 68(et)
+	ldw r18, 72(et)
+	ldw r19, 76(et)
+	ldw r20, 80(et)
+	ldw r21, 84(et)
+	ldw r22, 88(et)
+	ldw r23, 92(et)
+	# NOTE: restoring `et` is superfluous
+	ldw r24, 96(et)
+	ldw r25, 100(et)
+	ldw r26, 104(et)
+	ldw r27, 108(et)
+	ldw r28, 112(et)
+	# don't overwrite `ea`
+	#ldw r29, 116(et)
+	ldw r30, 120(et)
+	ldw r31, 124(et)
+
+	movi et, 1
+	wrctl ctl0, et
+	jmp ea
+
+os_readchar_afterstory:
+	ret
 
 /* hmmm */
 /*
@@ -2403,6 +2573,7 @@ os_bdel:
  */
 os_putchar:
 	wrctl ctl0, r0
+	movia ea, os_putchar_afterstory
 	movia et, PROCESS_REGISTERS_TMP
 	stw r1, 4(et)
 	stw r2, 8(et)
@@ -2461,6 +2632,8 @@ os_putchar:
 	ldw r4, 0(sp)
 	stb r4, 0(r8)
 
+	# enable jtag uart write interrupts
+
 	addi sp, sp, 4
 	call os_schedule
 
@@ -2503,6 +2676,9 @@ os_putchar_epilogue:
 	movi et, 1
 	wrctl ctl0, et
 	jmp ea
+
+os_putchar_afterstory:
+	ret
 
 /*
  * r4: modified
