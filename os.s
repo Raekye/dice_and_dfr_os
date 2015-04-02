@@ -4,9 +4,8 @@
  * Hmmmmmm.
  *
  * TODO: fork pre-increments process num
- * TODO: os functions like readchar/putchar, getting rescheduled?
- * TODO: refactor system calls epilogue?
  * TODO: read queue
+ * TODO: vechs duplicate
  *
  * ## Conventions
  * - Most registers are callee-saved; I find this easier to work with
@@ -196,6 +195,9 @@ PROCESS_IO_YOLOQ:
 PROCESS_REGISTERS_TMP:
 	.skip PROCESS_REGISTERS_TMP_BYTES
 
+STDIN:
+	.skip 4
+
 EPSILON:
 	.string ""
 
@@ -360,6 +362,7 @@ interrupt_handle_jtag_uart_read:
 
 	movia r23, PROCESS_FOREGROUND
 	movia r22, PROCESS_REGISTERS
+	movia r21, STDIN
 
 	# get foreground process id
 	ldw r11, 0(r23)
@@ -372,6 +375,21 @@ interrupt_handle_jtag_uart_read:
 	call os_process_table_registers
 	mov r13, r2
 
+	# get current status
+	ldb r14, PROCESS_TABLE_STATUS(r12)
+	movi r15, 4
+	# if foreground waiting for io
+	beq r14, r15, interrupt_handle_jtag_uart_read_immediate
+	# then foreground not waiting for io
+	ldw r4, 0(r21)
+	# append to stdin buffer
+	mov r5, r9
+	call os_vechs_push
+
+	# done
+	br interrupt_handle_jtag_uart_epilogue
+
+interrupt_handle_jtag_uart_read_immediate:
 	# update status running
 	movi r14, 1
 	stb r14, PROCESS_TABLE_STATUS(r12)
@@ -423,6 +441,13 @@ seog_ti_os:
 	movia r23, PROCESS_IO_YOLOQ
 	stw r2, 0(r23)
 
+	# initialize stdin buffer
+	movi r4, 16
+	call os_vechs_new
+	movia r23, STDIN
+	stw r2, 0(r23)
+
+	# initialize process table
 	movia r8, PROCESS_TABLE
 	movia r10, PROCESS_STACKS
 	movia r23, PROCESS_STACKS_BYTES
@@ -2456,17 +2481,29 @@ os_strlen_epilogue:
  * Should never terminate
  */
 os_bdel:
+	call os_pause
 	call os_readchar
 	mov r8, r2
+	call os_readchar
+	mov r9, r2
+	call os_readchar
+	mov r10, r2
+	call os_readchar
+	mov r11, r2
 
-
-os_bdel_hm:
 	mov r4, r8
 	call os_putchar_sync
+	mov r4, r9
+	call os_putchar_sync
+	mov r4, r10
+	call os_putchar_sync
+	mov r4, r11
+	call os_putchar_sync
+
 	movia r4, STR_NL
 	call os_printstr_sync
-	call os_pause
-	br os_bdel_hm
+
+	br os_bdel
 
 /*
  * r4: modified
@@ -2509,6 +2546,21 @@ os_readchar:
 	stw r30, 120(et)
 	stw r31, 124(et)
 
+	# get stdin buffer
+	movia r23, STDIN
+	ldw r4, 0(r23)
+
+	# check if empty
+	call os_vechs_size
+	beq r2, r0, os_readchar_empty_stdin
+	# then not empty
+	call os_vechs_shift
+	# save return to be restored
+	stw r2, 8(et)
+	# return immediately; no need to go into waiting state
+	br os_readchar_epilogue_ret
+
+os_readchar_empty_stdin:
 	# get current process id
 	call os_process_current
 	# get process table entry offset
@@ -2559,6 +2611,46 @@ os_readchar_epilogue:
 	movi et, 1
 	wrctl ctl0, et
 	jmp ea
+
+os_readchar_epilogue_ret:
+	movia et, PROCESS_REGISTERS_TMP
+	ldw r1, 4(et)
+	ldw r2, 8(et)
+	ldw r3, 12(et)
+	ldw r4, 16(et)
+	ldw r5, 20(et)
+	ldw r6, 24(et)
+	ldw r7, 28(et)
+	ldw r8, 32(et)
+	ldw r9, 36(et)
+	ldw r10, 40(et)
+	ldw r11, 44(et)
+	ldw r12, 48(et)
+	ldw r13, 52(et)
+	ldw r14, 56(et)
+	ldw r15, 60(et)
+	ldw r16, 64(et)
+	ldw r17, 68(et)
+	ldw r18, 72(et)
+	ldw r19, 76(et)
+	ldw r20, 80(et)
+	ldw r21, 84(et)
+	ldw r22, 88(et)
+	ldw r23, 92(et)
+	# NOTE: restoring `et` is superfluous
+	ldw r24, 96(et)
+	ldw r25, 100(et)
+	ldw r26, 104(et)
+	ldw r27, 108(et)
+	ldw r28, 112(et)
+	# don't overwrite `ea`
+	#ldw r29, 116(et)
+	ldw r30, 120(et)
+	ldw r31, 124(et)
+
+	movi et, 1
+	wrctl ctl0, et
+	# continue with after story, as if came back from the scheduler
 
 os_readchar_afterstory:
 	ret
@@ -2915,7 +3007,4 @@ have_fun_looping:
 	br have_fun_looping
 
 os_bombadil:
-	movia r4, BUKKITS_OF_FUN
-	call os_printstr_sync
-	call os_pause
 	br os_bombadil
