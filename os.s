@@ -1,11 +1,14 @@
 /*
  * The universe is made of 12 particles of matter, 4 forces of nature
- * # Richard and dfr OS
+ * # Dice and dfr OS
+ * This non-deterministic, unjust universe, I cannot accept it.
+ * "Blast reality. Synapse break. Banishment, this world!"
  * Hmmmmmm.
  *
  * TODO: fork pre-increments process num
- * TODO: read queue
  * TODO: vechs duplicate
+ * TODO: test fork
+ * TODO: test/finish filesystem
  *
  * ## Conventions
  * - Most registers are callee-saved; I find this easier to work with
@@ -73,7 +76,7 @@
  *     - 0: dead/unused
  *     - 1: running
  *     - 2: sleeping
- *     - 3: waiting IO write
+ *     - 3: waiting IO write (currently UNUSED/uneeded)
  *     - 4: waiting IO read
  *   - bytes 16-19: parent process id
  * - each process has
@@ -401,7 +404,6 @@ interrupt_handle_jtag_uart_read_immediate:
 	br interrupt_handle_jtag_uart_epilogue
 
 interrupt_handle_jtag_uart_write:
-	# TODO
 	# dequeue io yoloq
 	# write the byte
 	# update status byte
@@ -2346,6 +2348,69 @@ os_vechs_unshift_epilogue:
 
 /*
  * r4: modified
+ * r5: modified
+ * r6: modified
+ * r8: pointer to old vechs
+ * r9: pointer to new vechs
+ * r10: counter
+ * r11: size
+ * @param ptr
+ */
+os_vechs_dup:
+	addi sp, sp, -32
+	stw r4, 0(sp)
+	stw r5, 4(sp)
+	stw r6, 8(sp)
+	stw r8, 12(sp)
+	stw r9, 16(sp)
+	stw r10, 20(sp)
+	stw r11, 24(sp)
+	stw ra, 28(sp)
+
+	# save old ptr
+	mov r8, r4
+	# get the capacity
+	ldw r4, 4(r4)
+	# create new vechs
+	call os_vechs_new
+	mov r9, r2
+
+	# initialize counter
+	mov r10, r0
+	# get size
+	call os_vechs_size
+	mov r11, r2
+
+os_vechs_dup_loop:
+	beq r10, r11, os_vechs_dup_loop_done
+	# get element
+	mov r4, r8
+	mov r5, r10
+	call os_vechs_get
+	# set element
+	mov r4, r9
+	mov r6, r2
+	call os_vechs_set
+	addi r10, r10, 1
+	br os_vechs_dup_loop
+
+os_vechs_dup_loop_done:
+	mov r2, r9
+
+os_vechs_dup_epilogue
+	ldw r4, 0(sp)
+	ldw r5, 4(sp)
+	ldw r6, 8(sp)
+	ldw r8, 12(sp)
+	ldw r9, 16(sp)
+	ldw r10, 20(sp)
+	ldw r11, 24(sp)
+	ldw ra, 28(sp)
+	addi sp, sp, 32
+	ret
+
+/*
+ * r4: modified
  * r5: modified, copy counter
  * r8: allocated size
  * r9: size prime
@@ -2662,6 +2727,7 @@ os_readchar_afterstory:
  * r9: 3
  * r23: process io out base
  * @param byte to print
+ * Unused.
  */
 os_putchar:
 	wrctl ctl0, r0
