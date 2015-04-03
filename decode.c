@@ -182,7 +182,7 @@ char get_ascii(char index) {
 }
 
 int ascii_exist(char index) {
-	return (ascii[index] != 0 || index >= SIZE);
+	return (index < SIZE && ascii[index] != 0);
 }
 
 char* get_key_name(char index) {
@@ -190,5 +190,5 @@ char* get_key_name(char index) {
 }
 
 int key_name_exist(char index) {
-	return (key[index] != "" || index >= SIZE);
+	return (index < SIZE && key[index] != "");
 }
