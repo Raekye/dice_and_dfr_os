@@ -3,8 +3,8 @@
  * # Dice and dfr OS
  * This non-deterministic, unjust universe, I cannot accept it.
  * "Blast reality. Synapse break. Banishment, this world!"
+ * "Nature uses only the longest threads to weave her patterns, so that each small piece of her fabric reveals the organization of the entire tapestry."
  * Hmmmmmm.
- *
  * TODO: fork pre-increments process num
  * TODO: vechs duplicate
  * TODO: test fork
@@ -152,6 +152,10 @@
 .equ TIMER_PERIOD_L, 8
 .equ TIMER_PERIOD_H, 12
 .equ CYCLES_PER_HUNDRED_MILLISECONDS, 50000000
+.equ PS_2,			 0x10000100
+.equ PS_2_DATA,		 0
+.equ PS_2_CONTROL,	 4
+.equ BREAK_IGNORE, 0
 
 /* DATA */
 .data
@@ -277,6 +281,11 @@ ISR:
 	andi et, et, 0x100 # bit 8
 	bne et, r0, ISR_HANDLE_JTAG_UART
 
+	# check for PS2
+	rdctl et, ctl4
+	andi et ,et, 0x80 # bit 7
+	bne et, r0, ISR_HANDLE_PS2
+
 	# unknown interrupt
 	br ISR_EPILOGUE
 
@@ -289,6 +298,10 @@ ISR_HANDLE_TIMER:
 
 ISR_HANDLE_JTAG_UART:
 	call interrupt_handle_jtag_uart
+	br ISR_EPILOGUE
+
+ISR_HANDLE_PS2:
+	call interrupt_handle_ps2
 	br ISR_EPILOGUE
 
 ISR_EPILOGUE:
@@ -422,6 +435,72 @@ interrupt_handle_jtag_uart_epilogue:
 	addi sp, sp, 4
 	ret
 
+interrupt_handle_ps2:
+	addi sp, sp, -64
+	stw ra, 0(sp)
+	stw r1, 4(sp)
+	stw r2, 8(sp)
+	stw r3, 12(sp)
+	stw r4, 16(sp)
+	stw r5, 20(sp)
+	stw r6, 24(sp)
+	stw r7, 28(sp)
+	stw r8, 32(sp)
+	stw r9, 36(sp)
+	stw r10, 40(sp)
+	stw r11, 44(sp)
+	stw r12, 48(sp)
+	stw r13, 52(sp)
+	stw r14, 56(sp)
+	stw r15, 60(sp)
+	
+	movia r3,PS_2
+    movia r2,BREAK_IGNORE
+    ldb et,(r2)
+    bne et,r0,interrupt_handle_break_2
+    movui et,0xf0
+    ldbuio r4,(r3)
+    beq et,r4,interrupt_handle_break_1
+
+interrupt_handle_ps2_make:
+	# TODO, decode
+	movia r5, LEDS_GREEN
+	stwio r4, (r5)
+	br interrupt_handle_ps2_epilogue
+	
+interrupt_handle_break_1:
+    movi et,1
+    movia r2,BREAK_IGNORE
+    stb et,(r2)
+    br interrupt_handle_ps2_epilogue
+
+interrupt_handle_break_2:
+    ldbuio r0,(r3)
+    movia r2,BREAK_IGNORE
+    stb r0,(r2)
+    br interrupt_handle_ps2_epilogue
+
+interrupt_handle_ps2_epilogue:
+	ldw ra, 0(sp)
+	ldw r1, 4(sp)
+	ldw r2, 8(sp)
+	ldw r3, 12(sp)
+	ldw r4, 16(sp)
+	ldw r5, 20(sp)
+	ldw r6, 24(sp)
+	ldw r7, 28(sp)
+	ldw r8, 32(sp)
+	ldw r9, 36(sp)
+	ldw r10, 40(sp)
+	ldw r11, 44(sp)
+	ldw r12, 48(sp)
+	ldw r13, 52(sp)
+	ldw r14, 56(sp)
+	ldw r15, 60(sp)
+	addi sp, sp, 64
+	ret
+
+
 /* main */
 seog_ti_os:
 	wrctl ctl0, r0
@@ -518,8 +597,13 @@ seog_ti_os:
 	movi r9, 0x1 # disable write interrupt, enable read interrupt bits
 	stwio r9, JTAG_UART_CTRL(r8)
 
+	# enable PS2 interrupts
+	movia r8, PS_2
+	movi r9, 0x01 # enable read interrupt
+	stwio r9, PS_2_CONTROL(r8)
+
 	# enable irq interrupts
-	movi r8, 0x101 # bit 8, 0
+	movi r8, 0x181 # bit 8, 7, 0
 	wrctl ctl3, r8
 
 	# enable global interrupts
