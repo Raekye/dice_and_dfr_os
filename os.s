@@ -9,7 +9,7 @@
  * TODO: test fork
  * TODO: test sleep
  * TODO: test/finish filesystem
- * TODO: romania system calls disable interrupts
+ * TODO: check system calls disable interrupts
  *
  * ## Conventions
  * - Most registers are callee-saved; I find this easier to work with
@@ -44,10 +44,28 @@
  * - http://www-ug.eecg.toronto.edu/msl/nios_devices/
  *
  * ## System calls
- * - `wrctl ctl0, r0`; at the beginning
- * - `movi et, 1`;
- *   `wrctl ctl0, et`; at the end
- * - this ensures system calls aren't interrupted
+ * ### At the beginning
+ * ```
+ *    # disable interrupts
+ *    wrctl ctl0, r0
+ *    # save old value of ctl1
+ *    rdctl ctl1, et
+ *    addi sp, sp, -4
+ *    stw et, 0(sp)
+ *    # interrupts now "were last" disabled
+ *    wrctl ctl1, r0
+ * ```
+ *
+ * ### At the end
+ * ```
+ *    # get last value of ctl1
+ *    ldw et, 0(sp)
+ *    addi sp, sp, 4
+ *    # update ctl1
+ *    wrctl ctl1, et
+ *    # update ctl0
+ *    wrctl ctl0, et
+ * ```
  *
  * ## Romania
  * - inodes (16 bytes) * 256 (2 ^ 8) for total 4096 bytes
@@ -108,6 +126,9 @@
  * 6: out of nodes
  * 7: out of blocks
  * 8: copy directory
+ * 9: vechs set/get < 0
+ * 10: vechs set/get >= size
+ * 11: foreground delegate to invalid child process
  */
 
 /*
@@ -115,6 +136,36 @@
  */
 
 .global seog_ti_os
+
+.global os_fork
+.global os_mort
+.global os_foreground_delegate
+
+.global os_cp
+.global os_rm
+.global os_cat
+.global os_touch
+.global os_mkdir
+.global os_fwrite
+.global os_fappend
+
+.global os_vechs_new
+.global os_vechs_free
+.global os_vechs_size
+.global os_vechs_push
+.global os_vechs_pop
+.global os_vechs_shift
+.global os_vechs_unshift
+.global os_vechs_index
+.global os_vechs_slice
+.global os_vechs_extend
+.global os_vechs_dup
+
+.global os_memset
+.global os_memcpy
+.global os_strlen
+.global os_strcpy
+.global os_strcmp
 
 .equ HEAP_BYTES, 4096
 
@@ -197,7 +248,7 @@ PROCESS_IO_OUT:
 	.skip PROCESS_IO_OUT_BYTES
 
 /*
- * In the wise words of N0vale the Oval, Ender of Ellipses:
+ * In the wise words of N0valey of the Oval, Ender of Ellipses:
  * "Yolo is the only strategy"
  */
 PROCESS_IO_YOLOQ:
@@ -552,6 +603,15 @@ seog_ti_os:
  * @param pointer to string name
  */
 os_touch:
+	# disable interrupts
+	wrctl ctl0, r0
+	# save old value of ctl1
+	rdctl ctl1, et
+	addi sp, sp, -4
+	stw et, 0(sp)
+	# interrupts now "were last" disabled
+	wrctl ctl1, r0
+
 	addi sp, sp, -8
 	stw r6, 0(sp)
 	stw ra, 4(sp)
@@ -563,6 +623,14 @@ os_touch:
 	ldw r6, 0(sp)
 	ldw ra, 4(sp)
 	addi sp, sp, 8
+
+	# get last value of ctl1
+	ldw et, 0(sp)
+	addi sp, sp, 4
+	# update ctl1
+	wrctl ctl1, et
+	# update ctl0
+	wrctl ctl0, et
 	ret
 
 /*
@@ -570,6 +638,8 @@ os_touch:
  * @param pointer to string name
  */
 os_mkdir:
+	wrctl ctl0, r0
+
 	addi sp, sp, -8
 	stw r6, 0(sp)
 	stw ra, 4(sp)
@@ -690,22 +760,30 @@ os_falloc_epilogue:
 /*
  * r8: node address
  * r9: read byte
+ * r10: loaded byte, do I free my parents from the burden which is me, or am I following suit
+ * r11: parent id
+ * r12: parent dir contents
  * @param node id
  */
 os_rm:
-	addi sp, sp, -20
+	wrctl ctl0, r0
+
+	addi sp, sp, -28
 	stw r4, 0(sp)
 	stw r8, 4(sp)
 	stw r9, 8(sp)
 	stw r10, 12(sp)
-	stw ra, 16(sp)
+	stw r11, 16(sp)
+	stw r12, 20(sp)
+	stw ra, 24(sp)
 
 	# get address
 	call os_romania_node_from_id
 	mov r8, r2
 
 	# get parent node id
-	ldb r4, 2(r8)
+	ldb r11, 2(r8)
+	mov r4, r11
 	# get parent address
 	call os_romania_node_from_id
 	# get byte 0 (which includes "in use")
@@ -713,7 +791,23 @@ os_rm:
 	# if parent has been cleared, just remove self
 	beq r10, r0, os_rm_hmmm
 	# then need to remove entry from parent
-	# TODO: remove from parent
+	# get contents
+	call os_cat
+	mov r12, r2
+	mov r4, r12
+	# get index
+	ldw r5, 0(sp)
+	call os_vechs_index
+	# remove
+	mov r5, r2
+	call os_vechs_slice
+	# write
+	mov r5, r4
+	mov r4, r11
+	call os_fwrite
+	# free
+	mov r4, r12
+	call os_vechs_free
 
 os_rm_hmmm:
 	# restore node id in arg 0
@@ -738,8 +832,10 @@ os_rm_epilogue:
 	ldw r8, 4(sp)
 	ldw r9, 8(sp)
 	ldw r10, 12(sp)
-	ldw ra, 16(sp)
-	addi sp, sp, 20
+	stw r11, 16(sp)
+	stw r12, 20(sp)
+	stw ra, 24(sp)
+	addi sp, sp, 28
 	ret
 
 /*
@@ -834,12 +930,14 @@ os_rm_dir_epilogue:
  * @param string ptr
  */
 os_cp:
+	wrctl ctl0, r0
+
 	addi sp, sp, 24
 	stw r4, 0(sp)
 	stw r5, 4(sp)
 	stw r8, 8(sp)
 	stw r9, 12(sp)
-	stw 10, 16(sp)
+	stw r10, 16(sp)
 	stw ra, 20(sp)
 
 	# get node address
@@ -890,21 +988,66 @@ os_cp_epilogue:
 	ret
 
 /*
+ * r4: modified
+ * r5: modified
+ * r8: block id
+ * r9: block counter
+ * r10: data bytes per block (252 = 256 block size - 4 byte header)
+ * r11: vechs counter
+ * r12: vechs size
+ * r13: block pointer
+ * r14: block data pointer
  * @param node id
  * @param vechs ptr
  */
 os_fwrite:
-	addi sp, sp, -0
+	wrctl ctl0, r0
 
-	# TODO
+	addi sp, sp, -40
+	stw r4, 0(sp)
+	stw r5, 4(sp)
+	stw r8, 8(sp)
+	stw r9, 12(sp)
+	stw r10, 16(sp)
+	stw r11, 20(sp)
+	stw r12, 24(sp)
+	stw r13, 28(sp)
+	stw r14, 32(sp)
+	stw ra, 36(sp)
+
+	# get node metadata
+	call os_romania_node_from_id
+	mov r15, r2
+
 	# free block chain
 	call os_romania_block_from_node
 	mov r4, r2
 	call os_romania_free_block_chain
 
+	# create new block chain
 	call os_romania_allocate_block
 	mov r8, r2
-	# create new block chain
+
+	# update node block id
+	# get current first byte of node
+	ldw r16, 0(r15)
+	# keep lower 4 bits
+	andi r16, r16, 0x0f
+	# upper 4 bits of block id
+	srli r17, r8, 8
+	slli r17, r17, 4
+	# upper 4 bits of block id, file/dir bit, in use bit
+	or r17, r17, r16
+
+	# save byte 0
+	stb r17, 0(r15)
+	# save byte 1
+	stb r8, 1(r15)
+
+	# get block address
+	mov r4, r8
+	call os_romania_block_from_id
+	mov r13, r2
 
 	# initialize block counter
 	mov r9, r0
@@ -923,25 +1066,55 @@ os_fwrite_loop:
 	beq r11, r12, os_fwrite_epilogue
 	# if at end of block
 	beq r9, r10, os_fwrite_new_block
+	# then we have space for the current block
 
 os_fwrite_loop_block_ensured:
+	# block data address = block base + offset + header
+	add r14, r13, r9
+	addi r14, r14, 4
 
-	# TODO: update length
+	# get data
+	mov r5, r11
+	call os_vechs_get
+
+	# save data
+	stb r2, 0(r14)
 
 	# increment counters
 	addi r9, r9, 1
 	addi r11, r11, 1
+	# update size of block
+	stw r9, 1(r13)
 	# loop
 	br os_fwrite_loop
 
 os_fwrite_new_block:
 	# reset block counter
 	mov r9, r0
-	# TODO: update r8, the current block
-	# TODO: write new block to next block of previous block
+	# get new block
+	call os_romania_allocate_block
+	mov r8, r2
+	# update next block
+	sth r8, 2(r13)
+	# get block address
+	mov r4, r8
+	call os_romania_block_from_id
+	mov r13, r2
+	# current block has space to write
 	br os_fwrite_loop_block_ensured
 
 os_fwrite_epilogue:
+	ldw r4, 0(sp)
+	ldw r5, 4(sp)
+	ldw r8, 8(sp)
+	ldw r9, 12(sp)
+	ldw r10, 16(sp)
+	ldw r11, 20(sp)
+	ldw r12, 24(sp)
+	ldw r13, 28(sp)
+	ldw r14, 32(sp)
+	ldw ra, 36(sp)
+	addi sp, sp, 40
 	ret
 
 /*
@@ -951,6 +1124,8 @@ os_fwrite_epilogue:
  * @param vechs ptr
  */
 os_fappend:
+	wrctl ctl0, r0
+
 	addi sp, sp, -12
 	stw r4, 0(sp)
 	stw r5, 4(sp)
@@ -988,6 +1163,8 @@ os_fappend:
  * @param pointer to string name
  */
 os_romania_find_node:
+	wrctl ctl0, r0
+
 	addi sp, sp, 28
 	stw r4, 0(sp)
 	stw r5, 4(sp)
@@ -1062,6 +1239,8 @@ os_romania_find_node_epilogue:
  * Returns a vechs of contents (bytes)
  */
 os_cat:
+	wrctl ctl0, r0
+
 	addi sp, sp, -8
 	stw r4, 0(sp)
 	stw ra, 4(sp)
@@ -1861,12 +2040,48 @@ os_mort_epilogue:
 	jmp ea
 
 /*
+ * r8: child process' parent id
+ * r23: process foreground
  * Delegates forground to child process
  * @param child id
  */
 os_foreground_delegate:
-	# TODO
+	wrctl ctl0, r0
+
+	addi sp, sp, -12
+	stw r8, 0(sp)
+	stw r23, 4(sp)
+	stw ra, 8(sp)
+
+	# get child process table entry
+	call os_process_table_entry
+
+	# get parent id
+	ldw r8, PROCESS_TABLE_PARENT(r2)
+
+	# get current process id
+	call os_process_current
+
+	# check permissions
+	bne r2, r8, os_foreground_delegate_badness
+
+	# update foreground
+	movia r23, PROCESS_FOREGROUND
+	stw r4, 0(r23)
+
+os_foreground_delegate_epilogue:
+	ldw r8, 0(sp)
+	ldw r23, 4(sp)
+	ldw ra, 8(sp)
+	addi sp, sp, 12
+
+	movi et, 1
+	wrctl ctl0, et
 	ret
+
+os_foreground_delegate_badness:
+	movi r4, 11
+	br os_badness
 
 /*
  * @param time in 0.1 seconds (hundred milliseconds)
@@ -2557,9 +2772,31 @@ os_vechs_size:
  * @param i
  */
 os_vechs_get:
+	addi sp, sp, -4
+	stw ra, 0(sp)
+
+	# if i < 0
+	blt r5, r0, os_vechs_get_negative
+
+	# if i >= size
+	call os_vechs_size
+	bge r5, r2, os_vechs_get_exceeds
+
 	ldw r2, 0(r4)
 	add r2, r2, r5
 	ldb r2, 0(r2)
+
+os_vechs_get_negative:
+	movi r5, 9
+	br os_badness
+
+os_vechs_get_exceeds:
+	movi r5, 10
+	br os_badness
+
+os_vechs_get_epilogue:
+	ldw ra, 0(sp)
+	addi sp, sp, 4
 	ret
 
 /*
@@ -2568,9 +2805,31 @@ os_vechs_get:
  * @param x
  */
 os_vechs_set:
+	addi sp, sp, -4
+	stw ra, 0(sp)
+
+	# if i < 0
+	blt r5, r0, os_vechs_set_negative
+
+	# if i >= size
+	call os_vechs_size
+	bge r5, r2, os_vechs_set_exceeds
+
 	ldw r2, 0(r4)
 	add r2, r2, r5
 	stb r6, 0(r2)
+
+os_vechs_get_negative:
+	movi r5, 9
+	br os_badness
+
+os_vechs_get_exceeds:
+	movi r5, 10
+	br os_badness
+
+os_vechs_set_epilogue:
+	ldw ra, 0(sp)
+	addi sp, sp, 4
 	ret
 
 /*
@@ -2849,6 +3108,111 @@ os_vechs_extend_epilogue:
 	ldw r9, 12(sp)
 	ldw ra, 16(sp)
 	addi sp, sp, 20
+	ret
+
+/*
+ * r5: modified
+ * r8: vechs size
+ * r9: saved argument x
+ * @param ptr
+ * @param x
+ * @return index of element `x`, `-1` if not found
+ */
+os_vechs_index:
+	addi sp, sp, -16
+	stw r5, 0(sp)
+	stw r8, 4(sp)
+	stw r9, 8(sp)
+	stw ra, 12(sp)
+
+	# get size
+	call os_vechs_size
+	mov r8, r2
+
+	# save argument x
+	mov r9, r5
+
+	# initialize counter
+	mov r5, r0
+
+os_vechs_index_loop:
+	# bounds check
+	beq r5, r8, os_vechs_index_unfound
+
+	# get element
+	call os_vechs_get
+	# check equal
+	beq r2, r9, os_vechs_index_found
+
+	# loop
+	addi r9, r9, 1
+	br os_vehcs_index_loop
+
+os_vechs_index_unfound:
+	movi r2, -1
+	br os_vechs_index_epilogue
+
+os_vechs_index_found:
+	mov r2, r5
+	br os_vehcs_index_epilogue
+
+os_vechs_index_epilogue:
+	ldw r5, 0(sp)
+	ldw r8, 4(sp)
+	ldw r9, 8(sp)
+	ldw ra, 12(sp)
+	addi sp, sp, 16
+	ret
+
+/*
+ * r5: modified
+ * r6: modified
+ * r8: modified
+ * @param ptr
+ * @param i
+ * Removes element at index i
+ */
+os_vechs_slice:
+	addi sp, sp, -16
+	stw r5, 0(sp)
+	stw r6, 4(sp)
+	stw r8, 8(sp)
+	stw ra, 12(sp)
+
+	# get size
+	call os_vechs_size
+	mov r8, r2
+
+	# r5 points to the element we are copying from
+	addi r5, r5, 1
+
+os_vechs_slice_loop:
+	# bounds check
+	beq r5, r8, os_vechs_slice_loop_after
+
+	# get element
+	call os_vechs_get
+	# set argument value
+	mov r6, r2
+	# set argument index
+	addi r5, r5, -1
+	call os_vechs_set
+	# increase counter
+	addi r5, r5, 2
+
+	# loop
+	br os_vechs_slice_loop
+
+os_vechs_slice_loop_after:
+	# decrease size
+	call os_vechs_pop
+
+os_vechs_slice_epilogue:
+	ldw r5, 0(sp)
+	ldw r6, 4(sp)
+	ldw r8, 8(sp)
+	ldw ra, 12(sp)
+	addi sp, sp, 16
 	ret
 
 /*
@@ -3543,6 +3907,7 @@ os_pause_loop:
 	addi r8, r8, 1
 	br os_pause_loop
 
+# unpause ;)
 os_pause_epilogue:
 	ldw r8, 0(sp)
 	ldw r9, 4(sp)
