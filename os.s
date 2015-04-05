@@ -6,11 +6,10 @@
  * Hmmmmmm.
  *
  * TODO: fork pre-increments process num
- * TODO: vechs duplicate
  * TODO: test fork
+ * TODO: test sleep
  * TODO: test/finish filesystem
  * TODO: romania system calls disable interrupts
- * TODO: next block id needs 2 bytes
  *
  * ## Conventions
  * - Most registers are callee-saved; I find this easier to work with
@@ -57,7 +56,8 @@
  *     - bit 1: 0 for directory, 1 for file
  *     - bits 4-7: upper 4 bits of index of first block
  *   - byte 1: lower 8 bits of index of first block (range 2 ^ 12 = 4096)
- *   - bytes 2-15: name, null terminated, max length 13 (excluding null)
+ *   - byte 2: parent node id
+ *   - bytes 3-15: name, null terminated, max length 12 (excluding null)
  * - blocks (256 bytes) * 1024 (2 ^ 8 * 4) for total 262144 bytes
  *   - common
  *     - byte 0: 0 for free, 1 for in use
@@ -107,6 +107,7 @@
  * 5: bad file name
  * 6: out of nodes
  * 7: out of blocks
+ * 8: copy directory
  */
 
 /*
@@ -433,10 +434,26 @@ seog_ti_os:
 	movia r6, HEAP_BYTES
 	call os_memset
 
-	# establish romania
-	# TODO
-	# set up root node
+	# establish country
+	# the noble empire that is romania (set up root node)
+	movia r8, ROMANIA_NODES
+	# upper four bits of block id (0), directory bit (0), in use (1)
+	movi r9, 1
+	stb r9, 0(r8)
+	# lower 8 bits of block id (0)
+	stb r0, 1(r8)
+	# parent node id
+	stb r0, 2(r8)
+	# name (epsilon)
+	stb r0, 3(r8)
 	# set up root block
+	movia r8, ROMANIA_BLOCKS
+	# in use
+	stb r9, 0(r8)
+	# length
+	stb r0, 1(r8)
+	# next block id
+	sth r0, 2(r8)
 
 	# initialize process io queue
 	movi r4, 16
@@ -640,11 +657,12 @@ os_falloc:
 	ldw r5, 4(sp)
 	mov r4, r5
 	call os_strlen
-	movi r12, 13
+	# 12 is the max name length
+	movi r12, 12
 	bgt r2, r12, os_falloc_bad_name
 	# then valid name
 	# r5 = node address + name offset
-	addi r5, r9, 2
+	addi r5, r9, 3
 	call os_strcpy
 	# set return value
 	mov r2, r8
@@ -675,18 +693,32 @@ os_falloc_epilogue:
  * @param node id
  */
 os_rm:
-	addi sp, sp, -12
-	stw r8, 0(sp)
-	stw r9, 4(sp)
-	stw ra, 8(sp)
-
-	# TODO: remove from parent
-	# TODO: refactor for recursive call
+	addi sp, sp, -20
+	stw r4, 0(sp)
+	stw r8, 4(sp)
+	stw r9, 8(sp)
+	stw r10, 12(sp)
+	stw ra, 16(sp)
 
 	# get address
 	call os_romania_node_from_id
 	mov r8, r2
 
+	# get parent node id
+	ldb r4, 2(r8)
+	# get parent address
+	call os_romania_node_from_id
+	# get byte 0 (which includes "in use")
+	ldb r10, 0(r2)
+	# if parent has been cleared, just remove self
+	beq r10, r0, os_rm_hmmm
+	# then need to remove entry from parent
+	# TODO: remove from parent
+
+os_rm_hmmm:
+	# restore node id in arg 0
+	ldw r4, 0(sp)
+	# get byte 0 of node
 	ldb r9, 0(r8)
 	# get second bit, directory or file
 	andi r9, r9, 0x2
@@ -702,10 +734,12 @@ os_rm_handle_dir:
 	br os_rm_epilogue
 
 os_rm_epilogue:
-	ldw r8, 0(sp)
-	ldw r9, 4(sp)
-	ldw ra, 8(sp)
-	addi sp, sp, 12
+	ldw r4, 0(sp)
+	ldw r8, 4(sp)
+	ldw r9, 8(sp)
+	ldw r10, 12(sp)
+	ldw ra, 16(sp)
+	addi sp, sp, 20
 	ret
 
 /*
@@ -789,8 +823,238 @@ os_rm_dir_epilogue:
 	addi sp, sp, 20
 	ret
 
+/*
+ * r4: modified
+ * r5: modified
+ * r8: loaded byte
+ * r9: contents buffer
+ * r10: new node id
+ * @param node id src
+ * @param node id parent dest
+ * @param string ptr
+ */
 os_cp:
+	addi sp, sp, 24
+	stw r4, 0(sp)
+	stw r5, 4(sp)
+	stw r8, 8(sp)
+	stw r9, 12(sp)
+	stw 10, 16(sp)
+	stw ra, 20(sp)
+
+	# get node address
+	call os_romania_node_from_id
+	# get byte 0
+	ldb r8, 0(r2)
+	# check bit 1
+	andi r8, r8, 0x2
+	# if dir
+	beq r8, r0, os_cp_dir
+	# then file
+
+	# get contents
+	call os_cat
+	mov r9, r2
+
+	# touch new file
+	mov r4, r5
+	mov r5, r6
+	call os_touch
+	mov r10, r2
+
+	# copy contents
+	mov r4, r10
+	mov r5, r9
+	call os_fwrite
+
+	# free content buffer
+	mov r4, r9
+	call os_vechs_free
+
+	# set return value
+	mov r2, r10
+	br os_cp_epilogue
+
+os_cp_dir:
+	movi r4, 8
+	br os_badness
+
+os_cp_epilogue:
+	ldw r4, 0(sp)
+	ldw r5, 4(sp)
+	ldw r8, 8(sp)
+	ldw r9, 12(sp)
+	ldw r10, 16(sp)
+	ldw ra, 20(sp)
+	addi sp, sp, 24
+	ret
+
+/*
+ * @param node id
+ * @param vechs ptr
+ */
+os_fwrite:
+	addi sp, sp, -0
+
 	# TODO
+	# free block chain
+	call os_romania_block_from_node
+	mov r4, r2
+	call os_romania_free_block_chain
+
+	call os_romania_allocate_block
+	mov r8, r2
+	# create new block chain
+
+	# initialize block counter
+	mov r9, r0
+	# bytes per block, 256 - 4 byte header
+	movi r10, 252
+
+	# vechs counter
+	mov r11, r0
+	# vechs size
+	mov r4, r5
+	call os_vechs_size
+	mov r12, r2
+
+os_fwrite_loop:
+	# if wrote all the contents
+	beq r11, r12, os_fwrite_epilogue
+	# if at end of block
+	beq r9, r10, os_fwrite_new_block
+
+os_fwrite_loop_block_ensured:
+
+	# TODO: update length
+
+	# increment counters
+	addi r9, r9, 1
+	addi r11, r11, 1
+	# loop
+	br os_fwrite_loop
+
+os_fwrite_new_block:
+	# reset block counter
+	mov r9, r0
+	# TODO: update r8, the current block
+	# TODO: write new block to next block of previous block
+	br os_fwrite_loop_block_ensured
+
+os_fwrite_epilogue:
+	ret
+
+/*
+ * r4: modified
+ * r5: modified
+ * @param node id
+ * @param vechs ptr
+ */
+os_fappend:
+	addi sp, sp, -12
+	stw r4, 0(sp)
+	stw r5, 4(sp)
+	stw ra, 8(sp)
+
+	# get contents
+	call os_cat
+	# append user's data to existing file contents buffer
+	mov r4, r2
+	call os_vechs_extend
+
+	# write the combined vechs
+	mov r5, r4
+	ldw r4, 0(sp)
+	call os_write
+
+	# free buffer
+	mov r4, r5
+	call os_vechs_free
+
+	ldw r4, 0(sp)
+	ldw r5, 4(sp)
+	ldw ra, 8(sp)
+	addi sp, sp, 12
+	ret
+
+/*
+ * r4: modified
+ * r5: modified
+ * r8: dir contents
+ * r9: contents size
+ * r10: counter
+ * r11: child node id
+ * @param node id of current folder
+ * @param pointer to string name
+ */
+os_romania_find_node:
+	addi sp, sp, 28
+	stw r4, 0(sp)
+	stw r5, 4(sp)
+	stw r8, 8(sp)
+	stw r9, 12(sp)
+	stw r10, 16(sp)
+	stw r11, 20(sp)
+	stw ra, 24(sp)
+
+	# get dir contents
+	call os_cat
+	mov r8, r2
+
+	# get size
+	mov r4, r2
+	call os_vechs_size
+	mov r9, r2
+
+	# initialize counter
+	mov r10, r0
+
+os_romania_find_node_loop:
+	beq r10, r9, os_romania_find_node_loop_exhausted
+	# get node id
+	mov r4, r8
+	mov r5, r9
+	call os_vechs_get
+	mov r11, r2
+	# get node address
+	mov r4, r2
+	call os_romania_node_from_id
+	# compare names
+	ldw r4, 4(sp)
+	# name starts at byte 3 from node address base
+	addi r5, r2, 3
+	call os_strcmp
+	# if equal
+	beq r2, r0, os_romania_found_node
+
+	addi r10, r10, 1
+	br os_romania_find_node_loop
+
+os_romania_found_node:
+	# free buffer
+	mov r4, r8
+	call os_vechs_free
+	# set return value
+	mov r2, r11
+	br os_romania_find_node_epilogue
+
+os_romania_find_node_loop_exhausted:
+	# free buffer
+	mov r4, r8
+	call os_vechs_free
+	# set return value
+	mov r2, r0
+	br os_romania_find_node_epilogue
+
+os_romania_find_node_epilogue:
+	ldw r4, 0(sp)
+	ldw r5, 4(sp)
+	ldw r8, 8(sp)
+	ldw r9, 12(sp)
+	ldw r10, 16(sp)
+	ldw r11, 20(sp)
+	ldw ra, 24(sp)
+	addi sp, sp, 28
 	ret
 
 /*
@@ -811,24 +1075,6 @@ os_cat:
 	ldw r4, 0(sp)
 	ldw ra, 4(sp)
 	addi sp, sp, 8
-	ret
-
-/*
- * @param node id
- * @param vechs ptr
- */
-os_fwrite:
-	# TODO
-	# free block chain
-	# create new block chain
-	ret
-
-/*
- * @param node id
- * @param vechs ptr
- */
-os_fappend:
-	# TODO
 	ret
 
 /*
@@ -903,7 +1149,7 @@ os_romania_read_block_chain_handle_block:
 	# read length
 	ldb r10, 1(r9)
 	# skip header
-	addi r11, r9, 3
+	addi r11, r9, 4
 	mov r12, r0
 
 os_romania_read_block_chain_copy_block:
@@ -921,7 +1167,7 @@ os_romania_read_block_chain_copy_block:
 
 os_romania_read_block_chain_copy_block_done:
 	# get next block id
-	ldb r4, 2(r9)
+	ldh r4, 2(r9)
 	beq r4, r0, os_romania_read_block_chain_done
 	br os_romania_read_block_chain_handle_block
 
@@ -976,14 +1222,6 @@ os_romania_block_from_node_epilogue:
 	ldw r10, 8(sp)
 	ldw ra, 12(sp)
 	addi sp, sp, 16
-
-/*
- * @param node id of current folder
- * @param pointer to string name
- */
-os_romania_find_node:
-	# TODO
-	ret
 
 /*
  * r4: modified
@@ -1092,7 +1330,7 @@ os_romania_free_block_chain:
 	mov r8, r2
 
 	# get next block id
-	ldb r4, 2(r8)
+	ldh r4, 2(r8)
 	beq r4, r0, os_romania_free_block_chain_free
 	call os_romania_free_block_chain
 
@@ -1627,6 +1865,7 @@ os_mort_epilogue:
  * @param child id
  */
 os_foreground_delegate:
+	# TODO
 	ret
 
 /*
@@ -2566,6 +2805,54 @@ os_vechs_dup_epilogue
 
 /*
  * r4: modified
+ * r5: modified
+ * r8: second vechs size
+ * r9: counter
+ * @param this
+ * @param vechs to extend with
+ */
+os_vechs_extend:
+	addi sp, sp, -20
+	stw r4, 0(sp)
+	stw r5, 4(sp)
+	stw r8, 8(sp)
+	stw r9, 12(sp)
+	stw ra, 16(sp)
+
+	# get size of data
+	mov r4, r5
+	call os_vechs_size
+	mov r8, r2
+
+	# initialize counter
+	mov r9, r0
+
+os_vechs_extend_loop:
+	beq r9, r8, os_vechs_extend_epilogue
+	# get ith element
+	mov r5, r9
+	call os_vechs_get
+	# push back to this
+	mov r5, r2
+	ldw r4, 0(sp)
+	call os_vechs_push
+	# reset r4 to be the second vechs
+	ldw r4, 4(sp)
+	# increment counter
+	addi r9, r9, 1
+	br os_vechs_extend_loop
+
+os_vechs_extend_epilogue:
+	ldw r4, 0(sp)
+	ldw r5, 4(sp)
+	ldw r8, 8(sp)
+	ldw r9, 12(sp)
+	ldw ra, 16(sp)
+	addi sp, sp, 20
+	ret
+
+/*
+ * r4: modified
  * r5: modified, copy counter
  * r8: allocated size
  * r9: size prime
@@ -2692,6 +2979,50 @@ os_strlen_epilogue:
 	ldw r4, 0(sp)
 	ldw r8, 4(sp)
 	addi sp, sp, 8
+	ret
+
+/*
+ * r4: pointer to char a
+ * r5: pointer to char b
+ * r8: loaded char a
+ * r9: loaded char b
+ * @param str a address
+ * @param str b address
+ */
+os_strcmp:
+	addi sp, sp, -16
+	stw r4, 0(sp)
+	stw r5, 4(sp)
+	stw r8, 8(sp)
+	stw r9, 12(sp)
+
+	# initially assume same
+	mov r2, r0
+
+os_strcmp_loop:
+	# load chars
+	ldb r8, 0(r4)
+	ldb r9, 0(r5)
+	# if not equal
+	bne r8, r9, os_strcmp_no
+	# then equal
+	# if null
+	beq r8, r0, os_strcmp_epilogue
+	# then not null
+	addi r4, r4, 1
+	addi r5, r5, 1
+	br os_strcmp_loop
+
+os_strcmp_no:
+	movi r2, 1
+	br os_strcmp_epilogue
+
+os_strcmp_epilogue:
+	ldw r4, 0(sp)
+	ldw r5, 4(sp)
+	ldw r8, 8(sp)
+	ldw r9, 12(sp)
+	addi sp, sp, 16
 	ret
 
 /* bdel */
