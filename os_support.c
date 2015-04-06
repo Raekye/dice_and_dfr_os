@@ -31,26 +31,23 @@ int main() {
 
 void bdel() {
 	int cwd = 0;
-	char* prompt = "bdel$ "
+	char* prompt = "bdel$ ";
 	while (true) {
 		os_printstr_sync(prompt);
 		char* cmd = read_line();
-		os_printstr_sync(cmd);
-		os_free(cmd);
-		continue;
 		if (str_startswith(cmd, "odd")) {
 			int pid = os_fork();
 			if (pid == 0) {
 				prog_print_odd();
 			} else {
-				os_foreground_delegate(pid);
+				//os_foreground_delegate(pid);
 			}
 		} else if (str_startswith(cmd, "even")) {
 			int pid = os_fork();
 			if (pid == 0) {
 				prog_print_even();
 			} else {
-				os_foreground_delegate(pid);
+				//os_foreground_delegate(pid);
 			}
 		} else if (str_startswith(cmd, "add")) {
 			int pid = os_fork();
@@ -184,6 +181,8 @@ void bdel() {
 			} else {
 				os_foreground_delegate(pid);
 			}
+		} else {
+			os_printstr_sync("Unknown command\n");
 		}
 		os_free(cmd);
 	}
@@ -301,6 +300,7 @@ void prog_print_odd() {
 	for (int i = 1; i < 8; i += 2) {
 		char ch = i + '0';
 		os_putchar_sync(ch);
+		os_putchar_sync('\n');
 		os_sleep(10);
 	}
 	os_mort();
@@ -310,6 +310,7 @@ void prog_print_even() {
 	for (int i = 0; i < 8; i += 2) {
 		char ch = i + '0';
 		os_putchar_sync(ch);
+		os_putchar_sync('\n');
 		os_sleep(10);
 	}
 	os_mort();
@@ -352,6 +353,7 @@ char* read_line() {
 	Vechs* v = os_vechs_new(16);
 	while (true) {
 		char ch = os_readchar();
+		os_putchar_sync(ch);
 		if (ch == '\n') {
 			break;
 		}

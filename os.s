@@ -2153,12 +2153,12 @@ os_fork_find_empty_entry:
 	# check for max processes
 	beq r9, r21, os_fork_out_of_processes
 	# read process status
-	ldb r11, 12(r10)
+	ldb r11, PROCESS_TABLE_STATUS(r10)
 	# if 0, then empty entry
 	beq r11, r0, os_fork_found_empty_entry
 	# then look at next entry
 	addi r9, r9, 1
-	addi r10, r10, 16
+	addi r10, r10, 20
 	br os_fork_find_empty_entry
 
 os_fork_found_empty_entry:
@@ -2178,7 +2178,11 @@ os_fork_found_empty_entry:
 	# add new entry for child process
 	# set process id
 	stw r8, PROCESS_TABLE_ID(r10)
-	# pc set below
+	# set pc
+	# when the os switches to the child, it will reload the registers, and continue executing at the OVA
+	# it will have reloaded 0 as the return value, and return from fork
+	movia r14, os_fork_ova
+	stw r14, PROCESS_TABLE_PC(r10)
 	# set stack pointer
 	# point to top
 	addi r13, r9, 1
@@ -2236,10 +2240,8 @@ os_fork_found_empty_entry:
 	stw r30, 120(r12)
 	stw r31, 124(r12)
 
-	# when the os switches to the child, it will reload the registers, and continue executing at the OVA
-	# it will have reloaded 0 as the return value, and return from fork
-	movia r14, os_fork_ova
-	stw r14, PROCESS_TABLE_PC(r10)
+	# set return value
+	mov r2, r8
 
 	br os_fork_epilogue
 
@@ -3833,12 +3835,7 @@ os_strcmp_epilogue:
  * Should never terminate
  */
 os_bdel:
-	movi r4, 20
-	call os_sleep
-	movi r4, 'a'
-	call os_putchar_sync
-	br os_bdel
-	#call bdel
+	call bdel
 
 /*
  * r4: modified
@@ -4244,7 +4241,7 @@ os_putchar_sync_epilogue:
 
 	# get old value of ctl1
 	ldw et, 0(sp)
-	addi sp, sp, -4
+	addi sp, sp, 4
 	# update ctl1
 	wrctl ctl1, et
 	# return
