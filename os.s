@@ -813,6 +813,15 @@ os_mkdir:
  * @param 0 for dir, 1 for file
  */
 os_falloc:
+	# disable interrupts
+	wrctl ctl0, r0
+	# save old value of ctl1
+	rdctl et, ctl1
+	addi sp, sp, -4
+	stw et, 0(sp)
+	# interrupts now "were last" disabled
+	wrctl ctl1, r0
+
 	addi sp, sp, -44
 	stw r4, 0(sp)
 	stw r5, 4(sp)
@@ -903,16 +912,16 @@ os_falloc_epilogue:
 	ldw r22, 32(sp)
 	ldw r23, 36(sp)
 	ldw ra, 40(sp)
-	addi sp, sp, 40
+	addi sp, sp, 44
 
 	# get last value of ctl1
 	ldw et, 0(sp)
 	addi sp, sp, 4
 	# update ctl1
 	wrctl ctl1, et
-	# update ctl0
-	wrctl ctl0, et
-	ret
+	# return and update ctl0
+	mov ea, ra
+	eret
 
 /*
  * r8: node address
@@ -1184,6 +1193,9 @@ os_cp_epilogue:
  * r12: vechs size
  * r13: block pointer
  * r14: block data pointer
+ * r15: node address
+ * r16: temporary register, getting block id
+ * r17: block id
  * @param node id
  * @param vechs ptr
  */
@@ -1197,7 +1209,7 @@ os_fwrite:
 	# interrupts now "were last" disabled
 	wrctl ctl1, r0
 
-	addi sp, sp, -40
+	addi sp, sp, -52
 	stw r4, 0(sp)
 	stw r5, 4(sp)
 	stw r8, 8(sp)
@@ -1207,7 +1219,10 @@ os_fwrite:
 	stw r12, 24(sp)
 	stw r13, 28(sp)
 	stw r14, 32(sp)
-	stw ra, 36(sp)
+	stw r15, 36(sp)
+	stw r16, 40(sp)
+	stw r17, 44(sp)
+	stw ra, 48(sp)
 
 	# get node metadata
 	call os_romania_node_from_id
@@ -1278,7 +1293,7 @@ os_fwrite_loop_block_ensured:
 	addi r9, r9, 1
 	addi r11, r11, 1
 	# update size of block
-	stw r9, 1(r13)
+	stb r9, 1(r13)
 	# loop
 	br os_fwrite_loop
 
@@ -1307,8 +1322,11 @@ os_fwrite_epilogue:
 	ldw r12, 24(sp)
 	ldw r13, 28(sp)
 	ldw r14, 32(sp)
-	ldw ra, 36(sp)
-	addi sp, sp, 40
+	ldw r15, 36(sp)
+	ldw r16, 40(sp)
+	ldw r17, 44(sp)
+	ldw ra, 48(sp)
+	addi sp, sp, 52
 
 	# get last value of ctl1
 	ldw et, 0(sp)
@@ -1483,7 +1501,7 @@ os_romania_name_from_node:
 	# interrupts now "were last" disabled
 	wrctl ctl1, r0
 
-	addi sp, sp, 20
+	addi sp, sp, -20
 	stw r4, 0(sp)
 	stw r5, 4(sp)
 	stw r8, 8(sp)
@@ -1506,7 +1524,7 @@ os_romania_name_from_node:
 	call os_strcpy
 
 	# return value
-	mov r2, r8
+	mov r2, r9
 
 os_romania_name_from_node_epilogue:
 	ldw r4, 0(sp)
@@ -1733,7 +1751,7 @@ os_romania_block_from_node:
 	# get upper bits of byte 0, the upper 4 bits of block id
 	andi r9, r9, 0xf0
 	# shift upper 4 bits of block id
-	slli r10, r10, 8
+	slli r10, r10, 4
 	or r2, r9, r10
 
 os_romania_block_from_node_epilogue:
@@ -1742,6 +1760,7 @@ os_romania_block_from_node_epilogue:
 	ldw r10, 8(sp)
 	ldw ra, 12(sp)
 	addi sp, sp, 16
+	ret
 
 /*
  * r4: modified
@@ -1889,10 +1908,10 @@ os_romania_free_node:
 
 	call os_memset
 
-	stw r4, 0(sp)
-	stw r5, 4(sp)
-	stw r6, 8(sp)
-	stw ra, 12(sp)
+	ldw r4, 0(sp)
+	ldw r5, 4(sp)
+	ldw r6, 8(sp)
+	ldw ra, 12(sp)
 	addi sp, sp, 16
 	ret
 
@@ -1920,10 +1939,10 @@ os_romania_free_block:
 
 	call os_memset
 
-	stw r4, 0(sp)
-	stw r5, 4(sp)
-	stw r6, 8(sp)
-	stw ra, 12(sp)
+	ldw r4, 0(sp)
+	ldw r5, 4(sp)
+	ldw r6, 8(sp)
+	ldw ra, 12(sp)
 	addi sp, sp, 16
 	ret
 
@@ -2984,7 +3003,7 @@ os_malloc:
 	stw r10, 12(sp)
 	stw r11, 16(sp)
 	stw r12, 20(sp)
-	stw r10, 24(sp)
+	stw r20, 24(sp)
 	stw r21, 28(sp)
 	stw r22, 32(sp)
 	stw r23, 36(sp)
@@ -3758,10 +3777,10 @@ os_strcpy:
 os_strcpy_loop:
 	ldb r8, 0(r4)
 	stb r8, 0(r5)
-	beq r8, r0, os_strlen_epilogue
+	beq r8, r0, os_strcpy_epilogue
 	addi r4, r4, 1
 	addi r5, r5, 1
-	br os_strlen_loop
+	br os_strcpy_loop
 
 os_strcpy_epilogue:
 	ldw r4, 0(sp)
@@ -4349,6 +4368,7 @@ os_memset_epilogue:
 	ldw r8, 0(sp)
 	ldw r9, 4(sp)
 	addi sp, sp, 8
+	ret
 
 os_supermandive:
 	# disable interrupts

@@ -354,7 +354,12 @@ char* read_line() {
 	while (true) {
 		char ch = os_readchar();
 		os_putchar_sync(ch);
-		if (ch == '\n') {
+		if (ch == '\x7f') {
+			if (os_vechs_size(v) > 0) {
+				os_vechs_pop(v);
+			}
+			continue;
+		} else if (ch == '\n') {
 			break;
 		}
 		os_vechs_push(v, ch);
