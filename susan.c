@@ -55,4 +55,8 @@
  *
  */
 
+#include "os.h"
 
+void susan(Vechs*) {
+	os_prinstr_sync("So wise so young, never do they live long.\n");
+}

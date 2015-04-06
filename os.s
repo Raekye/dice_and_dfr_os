@@ -177,6 +177,8 @@
 .global os_mkdir
 .global os_fwrite
 .global os_fappend
+.global os_romania_find_node
+.global os_romania_name_from_node
 
 .global os_vechs_new
 .global os_vechs_free
@@ -1351,6 +1353,65 @@ os_romania_find_node_epilogue:
 	ldw r11, 20(sp)
 	ldw ra, 24(sp)
 	addi sp, sp, 28
+
+	# get last value of ctl1
+	ldw et, 0(sp)
+	addi sp, sp, 4
+	# update ctl1
+	wrctl ctl1, et
+	# return and update ctl0
+	mov ea, ra
+	eret
+
+/*
+ * r4: modified
+ * r5: modified
+ * r8: node address
+ * r9: allocated string
+ * @param node id
+ */
+os_romania_name_from_node:
+	# disable interrupts
+	wrctl ctl0, r0
+	# save old value of ctl1
+	rdctl ctl1, et
+	addi sp, sp, -4
+	stw et, 0(sp)
+	# interrupts now "were last" disabled
+	wrctl ctl1, r0
+
+	addi sp, sp, 20
+	stw r4, 0(sp)
+	stw r5, 4(sp)
+	stw r8, 8(sp)
+	stw r9, 12(sp)
+	stw ra, 16(sp)
+
+	# get node
+	call os_romania_node_from_id
+	mov r8, r2
+
+	# allocate string
+	movi r4, 16
+	call os_malloc
+	mov r9, r2
+
+	# copy
+	# name starts at byte 3
+	addi r4, r8, 3
+	mov r5, r9
+	call os_strcpy
+
+	# return value
+	mov r2, r8
+
+os_romania_name_from_node_epilogue:
+	ldw r4, 0(sp)
+	ldw r5, 4(sp)
+	ldw r8, 8(sp)
+	ldw r9, 12(sp)
+	ldw ra, 16(sp)
+	addi sp, sp, 20
 
 	# get last value of ctl1
 	ldw et, 0(sp)
