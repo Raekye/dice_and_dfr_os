@@ -2483,7 +2483,7 @@ os_sleep:
 	# disable interrupts
 	wrctl ctl0, r0
 
-	movia et, os_sleep_afterstory
+	movia ea, os_sleep_afterstory
 	movia et, PROCESS_REGISTERS_TMP
 	stw r1, 4(et)
 	stw r2, 8(et)
@@ -2538,7 +2538,7 @@ os_sleep:
 	call os_process_table_entry_from_index
 	# save sleeping status byte
 	movi r9, 2
-	stw r9, 0(r2)
+	stw r9, PROCESS_TABLE_STATUS(r2)
 
 	call os_schedule
 
@@ -2628,7 +2628,7 @@ os_tick_loop:
 	# decrement counter
 	addi r10, r10, -1
 	# save value
-	ldw r10, 0(r8)
+	stw r10, 0(r8)
 	# if time dropped to 0
 	beq r10, r0, os_tick_loop_wake
 	# then next
@@ -2638,9 +2638,9 @@ os_tick_loop_wake:
 	# set index as arg
 	mov r4, r9
 	call os_process_table_entry_from_index
-	# set ldatus byte to running
+	# set status byte to running
 	movi r11, 1
-	ldw r11, PROCESS_TABLE_STATUS(r2)
+	stw r11, PROCESS_TABLE_STATUS(r2)
 	br os_tick_loop_after
 
 os_tick_loop_after:
@@ -3833,8 +3833,9 @@ os_strcmp_epilogue:
  * Should never terminate
  */
 os_bdel:
-	call os_readchar
-	mov r4, r2
+	movi r4, 20
+	call os_sleep
+	movi r4, 'a'
 	call os_putchar_sync
 	br os_bdel
 	#call bdel
