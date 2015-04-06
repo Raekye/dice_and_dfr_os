@@ -246,7 +246,7 @@
 .equ TIMER_CTRL, 4
 .equ TIMER_PERIOD_L, 8
 .equ TIMER_PERIOD_H, 12
-.equ CYCLES_PER_HUNDRED_MILLISECONDS, 50000000
+.equ CYCLES_PER_HUNDRED_MILLISECONDS, 5000000
 .equ PS_2,			 0x10000100
 .equ PS_2_DATA,		 0
 .equ PS_2_CONTROL,	 4
@@ -324,6 +324,10 @@ HMMM:
 
 STR_NL:
 	.string "\n"
+
+# 16 levels
+OS_STACK:
+	.skip 64
 
 /* INTERRUPTS */
 .section .exceptions, "ax"
@@ -709,20 +713,22 @@ seog_ti_os:
 	stwio r9, JTAG_UART_CTRL(r8)
 
 	# enable PS2 interrupts
+	/*
 	movia r8, PS_2
 	movi r9, 0x01 # enable read interrupt
 	stwio r9, PS_2_CONTROL(r8)
+	*/
 
 	# enable irq interrupts
-	movi r8, 0x181 # bit 8, 7, 0
+	#movi r8, 0x181 # bit 8, 7, 0
+	movi r8, 0x101 # bit 8, 0
 	wrctl ctl3, r8
 
-	# enable global interrupts
-	movi r8, 1
-	wrctl ctl0, r8
-
-	# start shell
-	br os_bdel
+	# enable global interrupts, start shell
+	movi et, 1
+	wrctl ctl1, et
+	movia ea, os_bdel
+	eret
 
 /* romania */
 /*
@@ -2471,16 +2477,11 @@ os_foreground_delegate_badness:
 
 /*
  * @param time in 0.1 seconds (hundred milliseconds)
+ * NOTE: only call from user space
  */
 os_sleep:
 	# disable interrupts
 	wrctl ctl0, r0
-	# save old value of ctl1
-	rdctl et, ctl1
-	addi sp, sp, -4
-	stw et, 0(sp)
-	# interrupts now "were last" disabled
-	wrctl ctl1, r0
 
 	movia et, os_sleep_afterstory
 	movia et, PROCESS_REGISTERS_TMP
@@ -2577,10 +2578,8 @@ os_sleep_epilogue:
 	ldw r30, 120(et)
 	ldw r31, 124(et)
 
-	# get last value of ctl1
-	ldw et, 0(sp)
-	addi sp, sp, 4
 	# update ctl1
+	movi et, 1
 	wrctl ctl1, et
 	# jmp ea and update ctl0
 	eret
@@ -3217,13 +3216,14 @@ os_vechs_get:
 	ldw r2, 0(r4)
 	add r2, r2, r5
 	ldb r2, 0(r2)
+	br os_vechs_get_epilogue
 
 os_vechs_get_negative:
-	movi r5, 9
+	movi r4, 9
 	br os_badness
 
 os_vechs_get_exceeds:
-	movi r5, 10
+	movi r4, 10
 	br os_badness
 
 os_vechs_get_epilogue:
@@ -3250,13 +3250,14 @@ os_vechs_set:
 	ldw r2, 0(r4)
 	add r2, r2, r5
 	stb r6, 0(r2)
+	br os_vechs_set_epilogue
 
 os_vechs_set_negative:
-	movi r5, 9
+	movi r4, 9
 	br os_badness
 
 os_vechs_set_exceeds:
-	movi r5, 10
+	movi r4, 10
 	br os_badness
 
 os_vechs_set_epilogue:
@@ -3267,31 +3268,35 @@ os_vechs_set_epilogue:
 /*
  * r5: modified
  * r6: modified
+ * r8: size + 1
  * @param ptr
  * @param x
  */
 os_vechs_push:
-	addi sp, sp, -8
-	stw r6, 0(sp)
-	stw ra, 4(sp)
+	addi sp, sp, -16
+	stw r5, 0(sp)
+	stw r6, 4(sp)
+	stw r8, 8(sp)
+	stw ra, 12(sp)
 
 	# ensure capacity
 	call os_vechs_normalize
 	# get size
 	call os_vechs_size
+	# update size
+	addi r8, r2, 1
+	stw r8, 8(r4)
 	# set top value
 	mov r6, r5
 	mov r5, r2
 	call os_vechs_set
-	# update size
-	addi r2, r5, 1
-	stw r2, 8(r4)
 
 os_vechs_push_epilogue:
-	mov r5, r6
-	ldw r6, 0(sp)
-	ldw ra, 4(sp)
-	addi sp, sp, 8
+	ldw r5, 0(sp)
+	ldw r6, 4(sp)
+	ldw r8, 8(sp)
+	ldw ra, 12(sp)
+	addi sp, sp, 16
 	ret
 
 /*
@@ -3828,21 +3833,20 @@ os_strcmp_epilogue:
  * Should never terminate
  */
 os_bdel:
-	call bdel
+	call os_readchar
+	mov r4, r2
+	call os_putchar_sync
+	br os_bdel
+	#call bdel
 
 /*
  * r4: modified
  * r8: 4
+ * NOTE: only call from user space
  */
 os_readchar:
 	# disable interrupts
 	wrctl ctl0, r0
-	# save old value of ctl1
-	rdctl et, ctl1
-	addi sp, sp, -4
-	stw et, 0(sp)
-	# interrupts now "were last" disabled
-	wrctl ctl1, r0
 
 	movia ea, os_readchar_afterstory
 	movia et, PROCESS_REGISTERS_TMP
@@ -3941,15 +3945,14 @@ os_readchar_epilogue:
 	ldw r30, 120(et)
 	ldw r31, 124(et)
 
-	# get last value of ctl1
-	ldw et, 0(sp)
-	addi sp, sp, 4
 	# update ctl1
+	movi et, 1
 	wrctl ctl1, et
 	# jump to ea and update ctl0
 	eret
 
 os_readchar_epilogue_ret:
+
 	movia et, PROCESS_REGISTERS_TMP
 	ldw r1, 4(et)
 	ldw r2, 8(et)
@@ -3985,10 +3988,8 @@ os_readchar_epilogue_ret:
 	ldw r30, 120(et)
 	ldw r31, 124(et)
 
-	# get last value of ctl1
-	ldw et, 0(sp)
-	addi sp, sp, 4
 	# update ctl1
+	movi et, 1
 	wrctl ctl1, et
 	# return and update ctl0
 	mov ea, ra
@@ -4005,6 +4006,7 @@ os_readchar_afterstory:
  * r23: process io out base
  * @param byte to print
  * Unused.
+ * NOTE: only call from user space
  */
 os_putchar:
 	# disable interrupts
@@ -4116,10 +4118,8 @@ os_putchar_epilogue:
 	ldw r30, 120(et)
 	ldw r31, 124(et)
 
-	# get last value of ctl1
-	ldw et, 0(sp)
-	addi sp, sp, 4
 	# update ctl1
+	movi et, 1
 	wrctl ctl1, et
 	# jmp ea and update ctl0
 	eret
@@ -4241,9 +4241,14 @@ os_putchar_sync_epilogue:
 	ldw r23, 4(sp)
 	addi sp, sp, 8
 
-	movi et, 1
-	wrctl ctl0, et
-	ret
+	# get old value of ctl1
+	ldw et, 0(sp)
+	addi sp, sp, -4
+	# update ctl1
+	wrctl ctl1, et
+	# return
+	mov ea, ra
+	eret
 
 /*
  * r4: modified

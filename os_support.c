@@ -31,8 +31,13 @@ int main() {
 
 void bdel() {
 	int cwd = 0;
+	char* prompt = "bdel$ "
 	while (true) {
+		os_printstr_sync(prompt);
 		char* cmd = read_line();
+		os_printstr_sync(cmd);
+		os_free(cmd);
+		continue;
 		if (str_startswith(cmd, "odd")) {
 			int pid = os_fork();
 			if (pid == 0) {
