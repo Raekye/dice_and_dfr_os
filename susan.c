@@ -34,7 +34,7 @@
  *
  * I find myself with half my health,
  * In-the centre of their team.
- * I fight once more, and kill the four,
+ * I fight outscored, but kill the four,
  * By ult and proccing Sheen.
  *
  * Diana faces me once more,

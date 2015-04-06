@@ -9,7 +9,6 @@
  * TODO: test fork
  * TODO: test sleep
  * TODO: test/finish filesystem
- * TODO: check system calls disable interrupts
  *
  * ## Conventions
  * - Most registers are callee-saved; I find this easier to work with
@@ -63,9 +62,33 @@
  *    addi sp, sp, 4
  *    # update ctl1
  *    wrctl ctl1, et
- *    # update ctl0
- *    wrctl ctl0, et
+ *    # return and update ctl0
+ *    mov ea, ra
+ *    eret
  * ```
+ *
+ * ### List
+ * - memory
+ *   - os_malloc
+ *   - os_free
+ * - romania
+ *   - os_cp
+ *   - os_rm
+ *   - os_cat
+ *   - os_touch
+ *   - os_mkdir
+ *   - os_fwrite
+ *   - os_fappend
+ *   - os_romania_find_node
+ * - processes
+ *   - os_fork
+ *   - os_foreground_delegate
+ *   - os_sleep
+ *   - os_mort
+ * - io
+ *   - os_putchar
+ *   - os_putchar_sync
+ *   - os_readchar
  *
  * ## Romania
  * - inodes (16 bytes) * 256 (2 ^ 8) for total 4096 bytes
@@ -140,6 +163,12 @@
 .global os_fork
 .global os_mort
 .global os_foreground_delegate
+.global os_sleep
+.global os_pause
+
+.global os_putchar_sync
+.global os_printstr_sync
+.global os_readchar
 
 .global os_cp
 .global os_rm
@@ -629,16 +658,23 @@ os_touch:
 	addi sp, sp, 4
 	# update ctl1
 	wrctl ctl1, et
-	# update ctl0
-	wrctl ctl0, et
-	ret
+	# return and update ctl0
+	mov ea, ra
+	eret
 
 /*
  * @param node id of parent folder
  * @param pointer to string name
  */
 os_mkdir:
+	# disable interrupts
 	wrctl ctl0, r0
+	# save old value of ctl1
+	rdctl ctl1, et
+	addi sp, sp, -4
+	stw et, 0(sp)
+	# interrupts now "were last" disabled
+	wrctl ctl1, r0
 
 	addi sp, sp, -8
 	stw r6, 0(sp)
@@ -651,7 +687,15 @@ os_mkdir:
 	ldw r6, 0(sp)
 	ldw ra, 4(sp)
 	addi sp, sp, 8
-	ret
+
+	# get last value of ctl1
+	ldw et, 0(sp)
+	addi sp, sp, 4
+	# update ctl1
+	wrctl ctl1, et
+	# return and update ctl0
+	mov ea, ra
+	eret
 
 /*
  * r8: node id
@@ -755,6 +799,14 @@ os_falloc_epilogue:
 	ldw r23, 36(sp)
 	ldw ra, 40(sp)
 	addi sp, sp, 40
+
+	# get last value of ctl1
+	ldw et, 0(sp)
+	addi sp, sp, 4
+	# update ctl1
+	wrctl ctl1, et
+	# update ctl0
+	wrctl ctl0, et
 	ret
 
 /*
@@ -766,7 +818,14 @@ os_falloc_epilogue:
  * @param node id
  */
 os_rm:
+	# disable interrupts
 	wrctl ctl0, r0
+	# save old value of ctl1
+	rdctl ctl1, et
+	addi sp, sp, -4
+	stw et, 0(sp)
+	# interrupts now "were last" disabled
+	wrctl ctl1, r0
 
 	addi sp, sp, -28
 	stw r4, 0(sp)
@@ -836,6 +895,14 @@ os_rm_epilogue:
 	stw r12, 20(sp)
 	stw ra, 24(sp)
 	addi sp, sp, 28
+
+	# get last value of ctl1
+	ldw et, 0(sp)
+	addi sp, sp, 4
+	# update ctl1
+	wrctl ctl1, et
+	# update ctl0
+	wrctl ctl0, et
 	ret
 
 /*
@@ -930,7 +997,14 @@ os_rm_dir_epilogue:
  * @param string ptr
  */
 os_cp:
+	# disable interrupts
 	wrctl ctl0, r0
+	# save old value of ctl1
+	rdctl ctl1, et
+	addi sp, sp, -4
+	stw et, 0(sp)
+	# interrupts now "were last" disabled
+	wrctl ctl1, r0
 
 	addi sp, sp, 24
 	stw r4, 0(sp)
@@ -985,7 +1059,15 @@ os_cp_epilogue:
 	ldw r10, 16(sp)
 	ldw ra, 20(sp)
 	addi sp, sp, 24
-	ret
+
+	# get last value of ctl1
+	ldw et, 0(sp)
+	addi sp, sp, 4
+	# update ctl1
+	wrctl ctl1, et
+	# return and update ctl0
+	mov ea, ra
+	eret
 
 /*
  * r4: modified
@@ -1001,7 +1083,14 @@ os_cp_epilogue:
  * @param vechs ptr
  */
 os_fwrite:
+	# disable interrupts
 	wrctl ctl0, r0
+	# save old value of ctl1
+	rdctl ctl1, et
+	addi sp, sp, -4
+	stw et, 0(sp)
+	# interrupts now "were last" disabled
+	wrctl ctl1, r0
 
 	addi sp, sp, -40
 	stw r4, 0(sp)
@@ -1115,7 +1204,15 @@ os_fwrite_epilogue:
 	ldw r14, 32(sp)
 	ldw ra, 36(sp)
 	addi sp, sp, 40
-	ret
+
+	# get last value of ctl1
+	ldw et, 0(sp)
+	addi sp, sp, 4
+	# update ctl1
+	wrctl ctl1, et
+	# return and update ctl0
+	mov ea, ra
+	eret
 
 /*
  * r4: modified
@@ -1124,7 +1221,14 @@ os_fwrite_epilogue:
  * @param vechs ptr
  */
 os_fappend:
+	# disable interrupts
 	wrctl ctl0, r0
+	# save old value of ctl1
+	rdctl ctl1, et
+	addi sp, sp, -4
+	stw et, 0(sp)
+	# interrupts now "were last" disabled
+	wrctl ctl1, r0
 
 	addi sp, sp, -12
 	stw r4, 0(sp)
@@ -1150,7 +1254,15 @@ os_fappend:
 	ldw r5, 4(sp)
 	ldw ra, 8(sp)
 	addi sp, sp, 12
-	ret
+
+	# get last value of ctl1
+	ldw et, 0(sp)
+	addi sp, sp, 4
+	# update ctl1
+	wrctl ctl1, et
+	# return and update ctl0
+	mov ea, ra
+	eret
 
 /*
  * r4: modified
@@ -1163,7 +1275,14 @@ os_fappend:
  * @param pointer to string name
  */
 os_romania_find_node:
+	# disable interrupts
 	wrctl ctl0, r0
+	# save old value of ctl1
+	rdctl ctl1, et
+	addi sp, sp, -4
+	stw et, 0(sp)
+	# interrupts now "were last" disabled
+	wrctl ctl1, r0
 
 	addi sp, sp, 28
 	stw r4, 0(sp)
@@ -1232,14 +1351,29 @@ os_romania_find_node_epilogue:
 	ldw r11, 20(sp)
 	ldw ra, 24(sp)
 	addi sp, sp, 28
-	ret
+
+	# get last value of ctl1
+	ldw et, 0(sp)
+	addi sp, sp, 4
+	# update ctl1
+	wrctl ctl1, et
+	# return and update ctl0
+	mov ea, ra
+	eret
 
 /*
  * @param node id
  * Returns a vechs of contents (bytes)
  */
 os_cat:
+	# disable interrupts
 	wrctl ctl0, r0
+	# save old value of ctl1
+	rdctl ctl1, et
+	addi sp, sp, -4
+	stw et, 0(sp)
+	# interrupts now "were last" disabled
+	wrctl ctl1, r0
 
 	addi sp, sp, -8
 	stw r4, 0(sp)
@@ -1254,7 +1388,15 @@ os_cat:
 	ldw r4, 0(sp)
 	ldw ra, 4(sp)
 	addi sp, sp, 8
-	ret
+
+	# get last value of ctl1
+	ldw et, 0(sp)
+	addi sp, sp, 4
+	# update ctl1
+	wrctl ctl1, et
+	# return and update ctl0
+	mov ea, ra
+	eret
 
 /*
  * r23: romania nodes
@@ -1773,8 +1915,12 @@ os_process_stack_offset:
  * r21: process table max
  * r22: process table
  * r23: process num
+ * NOTE: should only be used from user space
  */
 os_fork:
+	# disable interrupts
+	wrctl ctl0, r0
+
 	addi sp, sp, -68
 	stw r8, 0(sp)
 	stw r9, 4(sp)
@@ -1892,9 +2038,9 @@ os_fork_found_empty_entry:
 	stw r30, 120(r12)
 	stw r31, 124(r12)
 
-	# when the os switches to the child, it will reload the registers, and continue executing (re-execute next instruction, harmless re-write)
+	# when the os switches to the child, it will reload the registers, and continue executing at the OVA
 	# it will have reloaded 0 as the return value, and return from fork
-	nextpc r14
+	movia r14, os_fork_ova
 	stw r14, PROCESS_TABLE_PC(r10)
 
 	br os_fork_epilogue
@@ -1904,6 +2050,31 @@ os_fork_out_of_processes:
 	br os_badness
 
 os_fork_epilogue:
+	ldw r8, 0(sp)
+	ldw r9, 4(sp)
+	ldw r10, 8(sp)
+	ldw r11, 12(sp)
+	ldw r12, 16(sp)
+	ldw r13, 20(sp)
+	ldw r14, 24(sp)
+	ldw r15, 28(sp)
+	ldw r16, 32(sp)
+	ldw r17, 36(sp)
+	ldw r18, 40(sp)
+	ldw r19, 44(sp)
+	ldw r20, 48(sp)
+	ldw r21, 52(sp)
+	ldw r22, 56(sp)
+	ldw r23, 60(sp)
+	ldw ra, 64(sp)
+	addi sp, sp, 68
+
+	# ctl1 should be 1 because os_fork only called from user space
+	# set ctl0 <- ctl1, return
+	mov ea, ra
+	eret
+
+os_fork_ova:
 	ldw r8, 0(sp)
 	ldw r9, 4(sp)
 	ldw r10, 8(sp)
@@ -1932,7 +2103,14 @@ os_fork_epilogue:
  * r23: process foreground
  */
 os_mort:
+	# disable interrupts
 	wrctl ctl0, r0
+	# save old value of ctl1
+	rdctl ctl1, et
+	addi sp, sp, -4
+	stw et, 0(sp)
+	# interrupts now "were last" disabled
+	wrctl ctl1, r0
 
 	addi sp, sp, -0
 
@@ -2035,9 +2213,13 @@ os_mort_epilogue:
 	ldw r30, 120(et)
 	ldw r31, 124(et)
 
-	movi et, 1
-	wrctl ctl0, et
-	jmp ea
+	# get last value of ctl1
+	ldw et, 0(sp)
+	addi sp, sp, 4
+	# update ctl1
+	wrctl ctl1, et
+	# jmp ea and update ctl0
+	eret
 
 /*
  * r8: child process' parent id
@@ -2046,7 +2228,14 @@ os_mort_epilogue:
  * @param child id
  */
 os_foreground_delegate:
+	# disable interrupts
 	wrctl ctl0, r0
+	# save old value of ctl1
+	rdctl ctl1, et
+	addi sp, sp, -4
+	stw et, 0(sp)
+	# interrupts now "were last" disabled
+	wrctl ctl1, r0
 
 	addi sp, sp, -12
 	stw r8, 0(sp)
@@ -2075,9 +2264,14 @@ os_foreground_delegate_epilogue:
 	ldw ra, 8(sp)
 	addi sp, sp, 12
 
-	movi et, 1
-	wrctl ctl0, et
-	ret
+	# get last value of ctl1
+	ldw et, 0(sp)
+	addi sp, sp, 4
+	# update ctl1
+	wrctl ctl1, et
+	# return and update ctl0
+	mov ea, ra
+	eret
 
 os_foreground_delegate_badness:
 	movi r4, 11
@@ -2087,7 +2281,15 @@ os_foreground_delegate_badness:
  * @param time in 0.1 seconds (hundred milliseconds)
  */
 os_sleep:
+	# disable interrupts
 	wrctl ctl0, r0
+	# save old value of ctl1
+	rdctl ctl1, et
+	addi sp, sp, -4
+	stw et, 0(sp)
+	# interrupts now "were last" disabled
+	wrctl ctl1, r0
+
 	movia et, os_sleep_afterstory
 	movia et, PROCESS_REGISTERS_TMP
 	stw r1, 4(et)
@@ -2183,9 +2385,13 @@ os_sleep_epilogue:
 	ldw r30, 120(et)
 	ldw r31, 124(et)
 
-	movi et, 1
-	wrctl ctl0, et
-	jmp ea
+	# get last value of ctl1
+	ldw et, 0(sp)
+	addi sp, sp, 4
+	# update ctl1
+	wrctl ctl1, et
+	# jmp ea and update ctl0
+	eret
 
 os_sleep_afterstory:
 	ret
@@ -2558,6 +2764,15 @@ os_schedule_epilogue:
  * @param n
  */
 os_malloc:
+	# disable interrupts
+	wrctl ctl0, r0
+	# save old value of ctl1
+	rdctl ctl1, et
+	addi sp, sp, -4
+	stw et, 0(sp)
+	# interrupts now "were last" disabled
+	wrctl ctl1, r0
+
 	addi sp, sp, -40
 	stw r4, 0(sp)
 	stw r8, 4(sp)
@@ -2666,7 +2881,15 @@ os_malloc_epilogue:
 	ldw r22, 32(sp)
 	ldw r23, 36(sp)
 	addi sp, sp, 40
-	ret
+
+	# get last value of ctl1
+	ldw et, 0(sp)
+	addi sp, sp, 4
+	# update ctl1
+	wrctl ctl1, et
+	# return and update ctl0
+	mov ea, ra
+	eret
 
 /*
  * r8: read header
@@ -2675,6 +2898,15 @@ os_malloc_epilogue:
  * @param ptr
  */
 os_free:
+	# disable interrupts
+	wrctl ctl0, r0
+	# save old value of ctl1
+	rdctl ctl1, et
+	addi sp, sp, -4
+	stw et, 0(sp)
+	# interrupts now "were last" disabled
+	wrctl ctl1, r0
+
 	addi sp, sp, -12
 	stw r8, 0(sp)
 	stw r9, 4(sp)
@@ -2699,7 +2931,15 @@ os_free_epilogue:
 	ldw r9, 4(sp)
 	ldw r10, 8(sp)
 	addi sp, sp, 12
-	ret
+
+	# get last value of ctl1
+	ldw et, 0(sp)
+	addi sp, sp, 4
+	# update ctl1
+	wrctl ctl1, et
+	# return and update ctl0
+	mov ea, ra
+	eret
 
 /* vechs */
 /*
@@ -3425,7 +3665,15 @@ os_bdel:
  * r8: 4
  */
 os_readchar:
+	# disable interrupts
 	wrctl ctl0, r0
+	# save old value of ctl1
+	rdctl ctl1, et
+	addi sp, sp, -4
+	stw et, 0(sp)
+	# interrupts now "were last" disabled
+	wrctl ctl1, r0
+
 	movia ea, os_readchar_afterstory
 	movia et, PROCESS_REGISTERS_TMP
 	stw r1, 4(et)
@@ -3523,9 +3771,13 @@ os_readchar_epilogue:
 	ldw r30, 120(et)
 	ldw r31, 124(et)
 
-	movi et, 1
-	wrctl ctl0, et
-	jmp ea
+	# get last value of ctl1
+	ldw et, 0(sp)
+	addi sp, sp, 4
+	# update ctl1
+	wrctl ctl1, et
+	# jump to ea and update ctl0
+	eret
 
 os_readchar_epilogue_ret:
 	movia et, PROCESS_REGISTERS_TMP
@@ -3563,9 +3815,14 @@ os_readchar_epilogue_ret:
 	ldw r30, 120(et)
 	ldw r31, 124(et)
 
-	movi et, 1
-	wrctl ctl0, et
-	# continue with after story, as if came back from the scheduler
+	# get last value of ctl1
+	ldw et, 0(sp)
+	addi sp, sp, 4
+	# update ctl1
+	wrctl ctl1, et
+	# return and update ctl0
+	mov ea, ra
+	eret
 
 os_readchar_afterstory:
 	ret
@@ -3580,7 +3837,15 @@ os_readchar_afterstory:
  * Unused.
  */
 os_putchar:
+	# disable interrupts
 	wrctl ctl0, r0
+	# save old value of ctl1
+	rdctl ctl1, et
+	addi sp, sp, -4
+	stw et, 0(sp)
+	# interrupts now "were last" disabled
+	wrctl ctl1, r0
+
 	movia ea, os_putchar_afterstory
 	movia et, PROCESS_REGISTERS_TMP
 	stw r1, 4(et)
@@ -3681,9 +3946,13 @@ os_putchar_epilogue:
 	ldw r30, 120(et)
 	ldw r31, 124(et)
 
-	movi et, 1
-	wrctl ctl0, et
-	jmp ea
+	# get last value of ctl1
+	ldw et, 0(sp)
+	addi sp, sp, 4
+	# update ctl1
+	wrctl ctl1, et
+	# jmp ea and update ctl0
+	eret
 
 os_putchar_afterstory:
 	ret
@@ -3771,9 +4040,17 @@ os_io_yoloq_dequeue:
  * r8: polling spaces available for write
  * r23: jtag uart
  * @param char
+ * NOTE: don't call within other system functions
  */
 os_putchar_sync:
+	# disable interrupts
 	wrctl ctl0, r0
+	# save old value of ctl1
+	rdctl ctl1, et
+	addi sp, sp, -4
+	stw et, 0(sp)
+	# interrupts now "were last" disabled
+	wrctl ctl1, r0
 
 	addi sp, sp, -8
 	stw r8, 0(sp)
