@@ -37,6 +37,8 @@ void os_fwrite(int, Vechs*);
 void os_fappend(int, Vechs*);
 int os_romania_node_from_name(char*);
 char* os_romania_name_from_node(int);
+int os_romania_parent(int);
+bool os_romania_is_dir(int);
 
 Vechs* os_vechs_new(int);
 void os_vechs_delete(Vechs*);

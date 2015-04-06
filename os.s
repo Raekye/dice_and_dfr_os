@@ -85,6 +85,7 @@
  *   - os_romania_node_from_name
  *   - os_romania_name_from_node
  *   - os_romania_parent
+ *   - os_romania_is_dir
  * - processes
  *   - os_fork
  *   - os_foreground_delegate
@@ -187,6 +188,7 @@
 .global os_romania_node_from_name
 .global os_romania_name_from_node
 .global os_romania_parent
+.global os_romania_is_dir
 
 .global os_vechs_new
 .global os_vechs_delete
@@ -1580,6 +1582,47 @@ os_romania_parent_epilogue:
 
 /*
  * @param node id
+ */
+os_romania_is_dir:
+	# disable interrupts
+	wrctl ctl0, r0
+	# save old value of ctl1
+	rdctl et, ctl1
+	addi sp, sp, -4
+	stw et, 0(sp)
+	# interrupts now "were last" disabled
+	wrctl ctl1, r0
+
+	addi sp, sp, 4
+	stw ra, 0(sp)
+
+	# get node
+	call os_romania_node_from_id
+
+	# get parent
+	ldb r2, 0(r2)
+	# get bit 1
+	andi r2, r2, 0x2
+	# shift bit 1 to bit 0
+	srli r2, r2, 1
+	# invert
+	xori r2, r2, 1
+
+os_romania_is_dir_epilogue:
+	ldw ra, 0(sp)
+	addi sp, sp, 4
+
+	# get last value of ctl1
+	ldw et, 0(sp)
+	addi sp, sp, 4
+	# update ctl1
+	wrctl ctl1, et
+	# return and update ctl0
+	mov ea, ra
+	eret
+
+/*
+ * @param node id
  * Returns a vechs of contents (bytes)
  */
 os_cat:
@@ -1662,15 +1705,16 @@ os_romania_block_from_id:
  * @param block id
  */
 os_romania_read_block_chain:
-	addi sp, sp, -32
+	addi sp, sp, -36
 	stw r4, 0(sp)
-	stw r8, 4(sp)
-	stw r9, 8(sp)
-	stw r10, 12(sp)
-	stw r11, 16(sp)
-	stw r12, 20(sp)
-	stw r22, 24(sp)
-	stw ra, 28(sp)
+	stw r5, 4(sp)
+	stw r8, 8(sp)
+	stw r9, 12(sp)
+	stw r10, 16(sp)
+	stw r11, 20(sp)
+	stw r12, 24(sp)
+	stw r22, 28(sp)
+	stw ra, 32(sp)
 
 	# create buffer
 	movi r4, 64
@@ -1716,14 +1760,15 @@ os_romania_read_block_chain_done:
 
 os_romania_read_block_chain_epilogue:
 	ldw r4, 0(sp)
-	ldw r8, 4(sp)
-	ldw r9, 8(sp)
-	ldw r10, 12(sp)
-	ldw r11, 16(sp)
-	ldw r12, 20(sp)
-	ldw r22, 24(sp)
-	ldw ra, 28(sp)
-	addi sp, sp, 32
+	ldw r5, 4(sp)
+	ldw r8, 8(sp)
+	ldw r9, 12(sp)
+	ldw r10, 16(sp)
+	ldw r11, 20(sp)
+	ldw r12, 24(sp)
+	ldw r22, 28(sp)
+	ldw ra, 32(sp)
+	addi sp, sp, 36
 	ret
 
 /*

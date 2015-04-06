@@ -62,6 +62,12 @@ void bdel() {
 			for (int i = 0; i < n; i++) {
 				int id = os_vechs_get(v, i);
 				char* name = os_romania_name_from_node(id);
+				char type = 'F';
+				if (os_romania_is_dir(id)) {
+					type = 'D';
+				}
+				os_putchar_sync(type);
+				os_printstr_sync(": ");
 				os_printstr_sync(name);
 				os_putchar_sync('\n');
 				os_free(name);
