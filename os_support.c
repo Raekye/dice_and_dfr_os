@@ -98,7 +98,7 @@ void bdel() {
 			if (n <= 0 || n > 12) {
 				os_printstr_sync("Invalid name\n");
 			} else {
-				int node_id = os_romania_node_from_name(name);
+				int node_id = os_romania_node_from_name(cwd, name);
 				if (node_id == 0) {
 					os_printstr_sync("Unknown file/folder\n");
 				} else {
@@ -117,7 +117,7 @@ void bdel() {
 			if (n <= 0 || n > 12) {
 				os_printstr_sync("Invalid name\n");
 			} else {
-				int node_id = os_romania_node_from_name(name);
+				int node_id = os_romania_node_from_name(cwd, name);
 				if (node_id == 0) {
 					os_printstr_sync("Unknown file/folder\n");
 				} else {
@@ -138,7 +138,7 @@ void bdel() {
 			if (n <= 0 || n > 12) {
 				os_printstr_sync("Invalid name\n");
 			} else {
-				int node_id = os_romania_node_from_name(name);
+				int node_id = os_romania_node_from_name(cwd, name);
 				if (node_id == 0) {
 					os_printstr_sync("Unknown file/folder\n");
 				} else {
@@ -154,7 +154,7 @@ void bdel() {
 				if (n <= 0 || n > 12) {
 					os_printstr_sync("Invalid name\n");
 				} else {
-					int node_id = os_romania_node_from_name(name);
+					int node_id = os_romania_node_from_name(cwd, name);
 					if (node_id == 0) {
 						os_printstr_sync("Unknown file/folder\n");
 					} else {
@@ -175,7 +175,7 @@ void bdel() {
 				if (n <= 0 || n > 12) {
 					os_printstr_sync("Invalid name\n");
 				} else {
-					int node_id = os_romania_node_from_name(name);
+					int node_id = os_romania_node_from_name(cwd, name);
 					if (node_id == 0) {
 						os_printstr_sync("Unknown file/folder\n");
 					} else {

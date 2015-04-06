@@ -1007,9 +1007,9 @@ os_rm_epilogue:
 	ldw r8, 4(sp)
 	ldw r9, 8(sp)
 	ldw r10, 12(sp)
-	stw r11, 16(sp)
-	stw r12, 20(sp)
-	stw ra, 24(sp)
+	ldw r11, 16(sp)
+	ldw r12, 20(sp)
+	ldw ra, 24(sp)
 	addi sp, sp, 28
 
 	# get last value of ctl1
@@ -1017,9 +1017,9 @@ os_rm_epilogue:
 	addi sp, sp, 4
 	# update ctl1
 	wrctl ctl1, et
-	# update ctl0
-	wrctl ctl0, et
-	ret
+	# return and update ctl0
+	mov ea, ra
+	eret
 
 /*
  * @param node id
@@ -1080,17 +1080,17 @@ os_rm_dir:
 os_rm_dir_loop:
 	beq r5, r9, os_rm_dir_done
 	# get child node id
+	mov r4, r8
 	call os_vechs_get
 	# recursively delete
 	mov r4, r2
 	call os_rm
-	# reset r4 to vechs
-	mov r4, r8
 	# increment counter
 	addi r5, r5, 1
 	br os_rm_dir_loop
 
 os_rm_dir_done:
+	mov r4, r8
 	call os_vechs_delete
 
 os_rm_dir_epilogue:
@@ -1409,7 +1409,7 @@ os_romania_node_from_name:
 	# interrupts now "were last" disabled
 	wrctl ctl1, r0
 
-	addi sp, sp, 28
+	addi sp, sp, -28
 	stw r4, 0(sp)
 	stw r5, 4(sp)
 	stw r8, 8(sp)
@@ -1423,7 +1423,7 @@ os_romania_node_from_name:
 	mov r8, r2
 
 	# get size
-	mov r4, r2
+	mov r4, r8
 	call os_vechs_size
 	mov r9, r2
 
@@ -1434,7 +1434,7 @@ os_romania_node_from_name_loop:
 	beq r10, r9, os_romania_node_from_name_loop_exhausted
 	# get node id
 	mov r4, r8
-	mov r5, r9
+	mov r5, r10
 	call os_vechs_get
 	mov r11, r2
 	# get node address
@@ -3659,7 +3659,7 @@ os_vechs_index_loop:
 	beq r2, r9, os_vechs_index_found
 
 	# loop
-	addi r9, r9, 1
+	addi r5, r5, 1
 	br os_vechs_index_loop
 
 os_vechs_index_unfound:
