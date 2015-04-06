@@ -5,10 +5,13 @@
  * "Blast reality. Synapse break. Banishment, this world!"
  * "Nature uses only the longest threads to weave her patterns, so that each small piece of her fabric reveals the organization of the entire tapestry."
  * Hmmmmmm.
+ *
  * TODO: fork pre-increments process num
  * TODO: test fork
  * TODO: test sleep
- * TODO: test/finish filesystem
+ * TODO: testfilesystem
+ * TODO: name os_romania_node_from_name
+ * TODO: os_romania_parent
  *
  * ## Conventions
  * - Most registers are callee-saved; I find this easier to work with
@@ -48,7 +51,7 @@
  *    # disable interrupts
  *    wrctl ctl0, r0
  *    # save old value of ctl1
- *    rdctl ctl1, et
+ *    rdctl et, ctl1
  *    addi sp, sp, -4
  *    stw et, 0(sp)
  *    # interrupts now "were last" disabled
@@ -79,7 +82,9 @@
  *   - os_mkdir
  *   - os_fwrite
  *   - os_fappend
- *   - os_romania_find_node
+ *   - os_romania_node_from_name
+ *   - os_romania_name_from_node
+ *   - os_romania_parent
  * - processes
  *   - os_fork
  *   - os_foreground_delegate
@@ -165,6 +170,8 @@
 .global os_foreground_delegate
 .global os_sleep
 .global os_pause
+.global os_supermandive
+.global os_getup
 
 .global os_putchar_sync
 .global os_printstr_sync
@@ -177,12 +184,15 @@
 .global os_mkdir
 .global os_fwrite
 .global os_fappend
-.global os_romania_find_node
+.global os_romania_node_from_name
 .global os_romania_name_from_node
+.global os_romania_parent
 
 .global os_vechs_new
-.global os_vechs_free
+.global os_vechs_delete
 .global os_vechs_size
+.global os_vechs_get
+.global os_vechs_set
 .global os_vechs_push
 .global os_vechs_pop
 .global os_vechs_shift
@@ -192,6 +202,8 @@
 .global os_vechs_extend
 .global os_vechs_dup
 
+.global os_malloc
+.global os_free
 .global os_memset
 .global os_memcpy
 .global os_strlen
@@ -721,7 +733,7 @@ os_touch:
 	# disable interrupts
 	wrctl ctl0, r0
 	# save old value of ctl1
-	rdctl ctl1, et
+	rdctl et, ctl1
 	addi sp, sp, -4
 	stw et, 0(sp)
 	# interrupts now "were last" disabled
@@ -756,7 +768,7 @@ os_mkdir:
 	# disable interrupts
 	wrctl ctl0, r0
 	# save old value of ctl1
-	rdctl ctl1, et
+	rdctl et, ctl1
 	addi sp, sp, -4
 	stw et, 0(sp)
 	# interrupts now "were last" disabled
@@ -907,7 +919,7 @@ os_rm:
 	# disable interrupts
 	wrctl ctl0, r0
 	# save old value of ctl1
-	rdctl ctl1, et
+	rdctl et, ctl1
 	addi sp, sp, -4
 	stw et, 0(sp)
 	# interrupts now "were last" disabled
@@ -952,7 +964,7 @@ os_rm:
 	call os_fwrite
 	# free
 	mov r4, r12
-	call os_vechs_free
+	call os_vechs_delete
 
 os_rm_hmmm:
 	# restore node id in arg 0
@@ -1086,7 +1098,7 @@ os_cp:
 	# disable interrupts
 	wrctl ctl0, r0
 	# save old value of ctl1
-	rdctl ctl1, et
+	rdctl et, ctl1
 	addi sp, sp, -4
 	stw et, 0(sp)
 	# interrupts now "were last" disabled
@@ -1127,7 +1139,7 @@ os_cp:
 
 	# free content buffer
 	mov r4, r9
-	call os_vechs_free
+	call os_vechs_delete
 
 	# set return value
 	mov r2, r10
@@ -1172,7 +1184,7 @@ os_fwrite:
 	# disable interrupts
 	wrctl ctl0, r0
 	# save old value of ctl1
-	rdctl ctl1, et
+	rdctl et, ctl1
 	addi sp, sp, -4
 	stw et, 0(sp)
 	# interrupts now "were last" disabled
@@ -1310,7 +1322,7 @@ os_fappend:
 	# disable interrupts
 	wrctl ctl0, r0
 	# save old value of ctl1
-	rdctl ctl1, et
+	rdctl et, ctl1
 	addi sp, sp, -4
 	stw et, 0(sp)
 	# interrupts now "were last" disabled
@@ -1330,11 +1342,11 @@ os_fappend:
 	# write the combined vechs
 	mov r5, r4
 	ldw r4, 0(sp)
-	call os_write
+	call os_fwrite
 
 	# free buffer
 	mov r4, r5
-	call os_vechs_free
+	call os_vechs_delete
 
 	ldw r4, 0(sp)
 	ldw r5, 4(sp)
@@ -1360,11 +1372,11 @@ os_fappend:
  * @param node id of current folder
  * @param pointer to string name
  */
-os_romania_find_node:
+os_romania_node_from_name:
 	# disable interrupts
 	wrctl ctl0, r0
 	# save old value of ctl1
-	rdctl ctl1, et
+	rdctl et, ctl1
 	addi sp, sp, -4
 	stw et, 0(sp)
 	# interrupts now "were last" disabled
@@ -1391,8 +1403,8 @@ os_romania_find_node:
 	# initialize counter
 	mov r10, r0
 
-os_romania_find_node_loop:
-	beq r10, r9, os_romania_find_node_loop_exhausted
+os_romania_node_from_name_loop:
+	beq r10, r9, os_romania_node_from_name_loop_exhausted
 	# get node id
 	mov r4, r8
 	mov r5, r9
@@ -1410,25 +1422,25 @@ os_romania_find_node_loop:
 	beq r2, r0, os_romania_found_node
 
 	addi r10, r10, 1
-	br os_romania_find_node_loop
+	br os_romania_node_from_name_loop
 
 os_romania_found_node:
 	# free buffer
 	mov r4, r8
-	call os_vechs_free
+	call os_vechs_delete
 	# set return value
 	mov r2, r11
-	br os_romania_find_node_epilogue
+	br os_romania_node_from_name_epilogue
 
-os_romania_find_node_loop_exhausted:
+os_romania_node_from_name_loop_exhausted:
 	# free buffer
 	mov r4, r8
-	call os_vechs_free
+	call os_vechs_delete
 	# set return value
 	mov r2, r0
-	br os_romania_find_node_epilogue
+	br os_romania_node_from_name_epilogue
 
-os_romania_find_node_epilogue:
+os_romania_node_from_name_epilogue:
 	ldw r4, 0(sp)
 	ldw r5, 4(sp)
 	ldw r8, 8(sp)
@@ -1458,7 +1470,7 @@ os_romania_name_from_node:
 	# disable interrupts
 	wrctl ctl0, r0
 	# save old value of ctl1
-	rdctl ctl1, et
+	rdctl et, ctl1
 	addi sp, sp, -4
 	stw et, 0(sp)
 	# interrupts now "were last" disabled
@@ -1508,13 +1520,48 @@ os_romania_name_from_node_epilogue:
 
 /*
  * @param node id
+ */
+os_romania_parent:
+	# disable interrupts
+	wrctl ctl0, r0
+	# save old value of ctl1
+	rdctl et, ctl1
+	addi sp, sp, -4
+	stw et, 0(sp)
+	# interrupts now "were last" disabled
+	wrctl ctl1, r0
+
+	addi sp, sp, 4
+	stw ra, 0(sp)
+
+	# get node
+	call os_romania_node_from_id
+
+	# get parent
+	ldb r2, 2(r2)
+
+os_romania_parent_epilogue:
+	ldw ra, 0(sp)
+	addi sp, sp, 4
+
+	# get last value of ctl1
+	ldw et, 0(sp)
+	addi sp, sp, 4
+	# update ctl1
+	wrctl ctl1, et
+	# return and update ctl0
+	mov ea, ra
+	eret
+
+/*
+ * @param node id
  * Returns a vechs of contents (bytes)
  */
 os_cat:
 	# disable interrupts
 	wrctl ctl0, r0
 	# save old value of ctl1
-	rdctl ctl1, et
+	rdctl et, ctl1
 	addi sp, sp, -4
 	stw et, 0(sp)
 	# interrupts now "were last" disabled
@@ -1831,7 +1878,7 @@ os_romania_free_node:
 	# arg 1 (value)
 	mov r5, r0
 	# arg 2 (length)
-	mov r6, 16
+	movi r6, 16
 
 	call os_memset
 
@@ -1862,7 +1909,7 @@ os_romania_free_block:
 	# arg 1 (value)
 	mov r5, r0
 	# arg 2 (length)
-	mov r6, 256
+	movi r6, 256
 
 	call os_memset
 
@@ -2251,7 +2298,7 @@ os_mort:
 	# disable interrupts
 	wrctl ctl0, r0
 	# save old value of ctl1
-	rdctl ctl1, et
+	rdctl et, ctl1
 	addi sp, sp, -4
 	stw et, 0(sp)
 	# interrupts now "were last" disabled
@@ -2376,7 +2423,7 @@ os_foreground_delegate:
 	# disable interrupts
 	wrctl ctl0, r0
 	# save old value of ctl1
-	rdctl ctl1, et
+	rdctl et, ctl1
 	addi sp, sp, -4
 	stw et, 0(sp)
 	# interrupts now "were last" disabled
@@ -2429,7 +2476,7 @@ os_sleep:
 	# disable interrupts
 	wrctl ctl0, r0
 	# save old value of ctl1
-	rdctl ctl1, et
+	rdctl et, ctl1
 	addi sp, sp, -4
 	stw et, 0(sp)
 	# interrupts now "were last" disabled
@@ -2912,7 +2959,7 @@ os_malloc:
 	# disable interrupts
 	wrctl ctl0, r0
 	# save old value of ctl1
-	rdctl ctl1, et
+	rdctl et, ctl1
 	addi sp, sp, -4
 	stw et, 0(sp)
 	# interrupts now "were last" disabled
@@ -3046,7 +3093,7 @@ os_free:
 	# disable interrupts
 	wrctl ctl0, r0
 	# save old value of ctl1
-	rdctl ctl1, et
+	rdctl et, ctl1
 	addi sp, sp, -4
 	stw et, 0(sp)
 	# interrupts now "were last" disabled
@@ -3204,11 +3251,11 @@ os_vechs_set:
 	add r2, r2, r5
 	stb r6, 0(r2)
 
-os_vechs_get_negative:
+os_vechs_set_negative:
 	movi r5, 9
 	br os_badness
 
-os_vechs_get_exceeds:
+os_vechs_set_exceeds:
 	movi r5, 10
 	br os_badness
 
@@ -3435,7 +3482,7 @@ os_vechs_dup_loop:
 os_vechs_dup_loop_done:
 	mov r2, r9
 
-os_vechs_dup_epilogue
+os_vechs_dup_epilogue:
 	ldw r4, 0(sp)
 	ldw r5, 4(sp)
 	ldw r6, 8(sp)
@@ -3531,7 +3578,7 @@ os_vechs_index_loop:
 
 	# loop
 	addi r9, r9, 1
-	br os_vehcs_index_loop
+	br os_vechs_index_loop
 
 os_vechs_index_unfound:
 	movi r2, -1
@@ -3539,7 +3586,7 @@ os_vechs_index_unfound:
 
 os_vechs_index_found:
 	mov r2, r5
-	br os_vehcs_index_epilogue
+	br os_vechs_index_epilogue
 
 os_vechs_index_epilogue:
 	ldw r5, 0(sp)
@@ -3781,29 +3828,7 @@ os_strcmp_epilogue:
  * Should never terminate
  */
 os_bdel:
-	call os_pause
-	call os_readchar
-	mov r8, r2
-	call os_readchar
-	mov r9, r2
-	call os_readchar
-	mov r10, r2
-	call os_readchar
-	mov r11, r2
-
-	mov r4, r8
-	call os_putchar_sync
-	mov r4, r9
-	call os_putchar_sync
-	mov r4, r10
-	call os_putchar_sync
-	mov r4, r11
-	call os_putchar_sync
-
-	movia r4, STR_NL
-	call os_printstr_sync
-
-	br os_bdel
+	call bdel
 
 /*
  * r4: modified
@@ -3813,7 +3838,7 @@ os_readchar:
 	# disable interrupts
 	wrctl ctl0, r0
 	# save old value of ctl1
-	rdctl ctl1, et
+	rdctl et, ctl1
 	addi sp, sp, -4
 	stw et, 0(sp)
 	# interrupts now "were last" disabled
@@ -3985,7 +4010,7 @@ os_putchar:
 	# disable interrupts
 	wrctl ctl0, r0
 	# save old value of ctl1
-	rdctl ctl1, et
+	rdctl et, ctl1
 	addi sp, sp, -4
 	stw et, 0(sp)
 	# interrupts now "were last" disabled
@@ -4191,7 +4216,7 @@ os_putchar_sync:
 	# disable interrupts
 	wrctl ctl0, r0
 	# save old value of ctl1
-	rdctl ctl1, et
+	rdctl et, ctl1
 	addi sp, sp, -4
 	stw et, 0(sp)
 	# interrupts now "were last" disabled
@@ -4310,6 +4335,18 @@ os_memset_epilogue:
 	ldw r8, 0(sp)
 	ldw r9, 4(sp)
 	addi sp, sp, 8
+
+os_supermandive:
+	# disable interrupts
+	wrctl ctl0, r0
+
+os_getup:
+	# setup ctl1
+	movi et, 1
+	wrctl ctl1, et
+	# update ctl0 and return
+	mov ea, ra
+	eret
 
 /*
  * r8: counter

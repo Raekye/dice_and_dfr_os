@@ -1,13 +1,19 @@
 #ifndef DICE_AND_DFR_OS
 #define DICE_AND_DFR_OS
 
+#define true 1
+#define false 0
+
+typedef char bool;
+
 typedef struct {
 	char* data;
 	int capacity;
 	int size;
 } Vechs;
 
-int os_ti_seog();
+// os.s
+int seog_ti_os();
 
 char* os_malloc(int);
 void os_free(void*);
@@ -29,12 +35,14 @@ int os_touch(int, char*);
 int os_mkdir(int, char*);
 void os_fwrite(int, Vechs*);
 void os_fappend(int, Vechs*);
-int os_romania_find_node(char*);
+int os_romania_node_from_name(char*);
 char* os_romania_name_from_node(int);
 
 Vechs* os_vechs_new(int);
-void os_vechs_free(Vechs*);
+void os_vechs_delete(Vechs*);
 int os_vechs_size(Vechs*);
+char os_vechs_get(Vechs*, int);
+void os_vechs_set(Vechs*, int, char);
 void os_vechs_push(Vechs*, char);
 char os_vechs_pop(Vechs*);
 void os_vechs_unshift(Vechs*, char);
@@ -50,8 +58,27 @@ int os_strlen(char*);
 void os_strcpy(char*, char*);
 int os_strcmp(char*, char*);
 
+// hmmm
 void bdel();
 void susan(Vechs*);
 Vechs* skye();
+
+// tty
+void tty_draw(int, int, char);
+void tty_clear();
+void tty_normalize(unsigned);
+void tty_putchar(char);
+void tty_putword(char*);
+void tty_puthex(unsigned);
+void tty_putdec(unsigned);
+char tty_readchar();
+unsigned tty_readdec();
+unsigned tty_readhex();
+char* tty_readline();
+
+// ps2
+void ps2_init();
+char ps2_decode(char);
+char ps2_read_keyboard();
 
 #endif
