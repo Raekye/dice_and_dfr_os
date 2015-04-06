@@ -230,6 +230,7 @@
 .equ PROCESS_REGISTERS_BYTES, 16384
 
 .equ PROCESS_STACKS_BYTES, 524288
+.equ PROCESS_STACKS_EACH_BYTES, 4096
 
 .equ PROCESS_SLEEPING_BYTES, 512
 .equ PROCESS_IO_OUT_BYTES, 128
@@ -360,8 +361,8 @@ ISR:
 	stw r21, 84(et)
 	stw r22, 88(et)
 	stw r23, 92(et)
-	# NOTE: saving `et` is superfluous
-	stw r24, 96(et)
+	# NOTE: don't overwrite et
+	#stw r24, 96(et)
 	stw r25, 100(et)
 	stw r26, 104(et)
 	stw r27, 108(et)
@@ -428,8 +429,8 @@ ISR_EPILOGUE:
 	ldw r21, 84(et)
 	ldw r22, 88(et)
 	ldw r23, 92(et)
-	# NOTE: restoring `et` is superfluous
-	ldw r24, 96(et)
+	# NOTE: don't overwrite et
+	#ldw r24, 96(et)
 	ldw r25, 100(et)
 	ldw r26, 104(et)
 	ldw r27, 108(et)
@@ -647,7 +648,7 @@ seog_ti_os:
 	# initialize process table
 	movia r8, PROCESS_TABLE
 	movia r10, PROCESS_STACKS
-	movia r23, PROCESS_STACKS_BYTES
+	movia r23, PROCESS_STACKS_EACH_BYTES
 	movia r22, PROCESS_REGISTERS
 	# stack starts at top address
 	add r10, r10, r23
@@ -2053,25 +2054,25 @@ os_process_table_entry:
  * r4: modified
  * r5: modified
  * r6: modified
+ * r23: process stacks
  * @param parent process id
  * @param child process table index
  */
 os_process_duplicate_stack:
-	addi sp, sp, -16
+	addi sp, sp, -20
 	stw r4, 0(sp)
 	stw r5, 4(sp)
 	stw r6, 8(sp)
-	stw ra, 12(sp)
+	stw r23, 12(sp)
+	stw ra, 16(sp)
 
-	movia r23, PROCESS_TABLE
+	movia r23, PROCESS_STACKS
 	# get parent process stack offset
 	call os_process_stack_offset
 	# set first argument
-	mov r4, r2
+	subi r4, r2, PROCESS_STACKS_EACH_BYTES
 	# set third argument
-	movia r6, PROCESS_STACKS_BYTES
-	# stack grows downward, point to end
-	addi r5, r5, 1
+	movi r6, PROCESS_STACKS_EACH_BYTES
 	# offset = index * size
 	mul r5, r5, r6
 	# address = base + offset
@@ -2082,8 +2083,9 @@ os_process_duplicate_stack:
 	ldw r4, 0(sp)
 	ldw r5, 4(sp)
 	ldw r6, 8(sp)
-	ldw ra, 12(sp)
-	addi sp, sp, 16
+	ldw r23, 12(sp)
+	ldw ra, 16(sp)
+	addi sp, sp, 20
 	ret
 
 /*
@@ -2108,6 +2110,8 @@ os_process_stack_offset:
  * r12: address in process registers
  * r13: pointer to top of stack of child
  * r14: next pc for child process
+ * r15: parent process table entry
+ * r16: parent process stack offset
  * r19: process stacks
  * r20: process registers
  * r21: process table max
@@ -2175,6 +2179,10 @@ os_fork_found_empty_entry:
 	mov r5, r9
 	call os_process_duplicate_stack
 
+	# get parent process table entry
+	call os_process_table_entry
+	mov r15, r2
+
 	# add new entry for child process
 	# set process id
 	stw r8, PROCESS_TABLE_ID(r10)
@@ -2183,11 +2191,11 @@ os_fork_found_empty_entry:
 	# it will have reloaded 0 as the return value, and return from fork
 	movia r14, os_fork_ova
 	stw r14, PROCESS_TABLE_PC(r10)
-	# set stack pointer
+	# set stack offset
 	# point to top
 	addi r13, r9, 1
 	# index * size
-	muli r13, r13, 16
+	muli r13, r13, PROCESS_STACKS_EACH_BYTES
 	# base + offset
 	add r13, r19, r13
 	# save stack pointer
@@ -2199,6 +2207,16 @@ os_fork_found_empty_entry:
 	# save parent process
 	stw r4, PROCESS_TABLE_PARENT(r10)
 
+	# child stack pointer
+	# child stack offset - child sp = parent stack offset - parent sp
+	# child sp = child stack offset + parent sp - parent stack offset
+	# get parent offset
+	ldw r16, PROCESS_TABLE_STACK(r15)
+	# child stack offset + parent sp
+	add r17, r13, sp
+	# (child stackoffset + parent sp) - parent stack offset
+	sub r17, r17, r16
+
 	# save registers for child process
 	# offset into registers
 	# 32 registers * 4 bytes
@@ -2206,7 +2224,7 @@ os_fork_found_empty_entry:
 	# address = base address + offset
 	add r12, r20, r12
 
-	# save registers, except skip r0, r2 <- r0 for child
+	# save registers, except skip r0, r2 <- r0 for child, sp <- r17 for child
 	stw r1, 4(r12)
 	stw r0, 8(r12)
 	stw r3, 12(r12)
@@ -2230,11 +2248,11 @@ os_fork_found_empty_entry:
 	stw r21, 84(r12)
 	stw r22, 88(r12)
 	stw r23, 92(r12)
-	# NOTE: saving `et` is superfluous
-	stw r24, 96(r12)
+	# NOTE: don't overwrite et
+	#stw r24, 96(r12)
 	stw r25, 100(r12)
 	stw r26, 104(r12)
-	stw r27, 108(r12)
+	stw r17, 108(r12)
 	stw r28, 112(r12)
 	stw r29, 116(r12)
 	stw r30, 120(r12)
@@ -2301,16 +2319,11 @@ os_fork_ova:
  * r9: current process table entry
  * r10: load/store data for release_foreground
  * r23: process foreground
+ * NOTE: only call from user space
  */
 os_mort:
 	# disable interrupts
 	wrctl ctl0, r0
-	# save old value of ctl1
-	rdctl et, ctl1
-	addi sp, sp, -4
-	stw et, 0(sp)
-	# interrupts now "were last" disabled
-	wrctl ctl1, r0
 
 	addi sp, sp, -0
 
@@ -2402,8 +2415,8 @@ os_mort_epilogue:
 	ldw r21, 84(et)
 	ldw r22, 88(et)
 	ldw r23, 92(et)
-	# NOTE: restoring `et` is superfluous
-	ldw r24, 96(et)
+	# NOTE: don't overwrite et
+	#ldw r24, 96(et)
 	ldw r25, 100(et)
 	ldw r26, 104(et)
 	ldw r27, 108(et)
@@ -2413,10 +2426,8 @@ os_mort_epilogue:
 	ldw r30, 120(et)
 	ldw r31, 124(et)
 
-	# get last value of ctl1
-	ldw et, 0(sp)
-	addi sp, sp, 4
 	# update ctl1
+	movi et, 1
 	wrctl ctl1, et
 	# jmp ea and update ctl0
 	eret
@@ -2510,8 +2521,8 @@ os_sleep:
 	stw r21, 84(et)
 	stw r22, 88(et)
 	stw r23, 92(et)
-	# NOTE: saving `et` is superfluous
-	stw r24, 96(et)
+	# NOTE: don't overwrite et
+	#stw r24, 96(et)
 	stw r25, 100(et)
 	stw r26, 104(et)
 	stw r27, 108(et)
@@ -2569,8 +2580,8 @@ os_sleep_epilogue:
 	ldw r21, 84(et)
 	ldw r22, 88(et)
 	ldw r23, 92(et)
-	# NOTE: restoring `et` is superfluous
-	ldw r24, 96(et)
+	# NOTE: don't overwrite et
+	#ldw r24, 96(et)
 	ldw r25, 100(et)
 	ldw r26, 104(et)
 	ldw r27, 108(et)
@@ -3871,8 +3882,8 @@ os_readchar:
 	stw r21, 84(et)
 	stw r22, 88(et)
 	stw r23, 92(et)
-	# NOTE: saving `et` is superfluous
-	stw r24, 96(et)
+	# NOTE: don't overwrite et
+	#stw r24, 96(et)
 	stw r25, 100(et)
 	stw r26, 104(et)
 	stw r27, 108(et)
@@ -3932,8 +3943,8 @@ os_readchar_epilogue:
 	ldw r21, 84(et)
 	ldw r22, 88(et)
 	ldw r23, 92(et)
-	# NOTE: restoring `et` is superfluous
-	ldw r24, 96(et)
+	# NOTE: don't overwrite et
+	#ldw r24, 96(et)
 	ldw r25, 100(et)
 	ldw r26, 104(et)
 	ldw r27, 108(et)
@@ -3975,8 +3986,8 @@ os_readchar_epilogue_ret:
 	ldw r21, 84(et)
 	ldw r22, 88(et)
 	ldw r23, 92(et)
-	# NOTE: restoring `et` is superfluous
-	ldw r24, 96(et)
+	# NOTE: don't overwrite et
+	#ldw r24, 96(et)
 	ldw r25, 100(et)
 	ldw r26, 104(et)
 	ldw r27, 108(et)
@@ -4041,8 +4052,8 @@ os_putchar:
 	stw r21, 84(et)
 	stw r22, 88(et)
 	stw r23, 92(et)
-	# NOTE: saving `et` is superfluous
-	stw r24, 96(et)
+	# NOTE: don't overwrite et
+	#stw r24, 96(et)
 	stw r25, 100(et)
 	stw r26, 104(et)
 	stw r27, 108(et)
@@ -4105,8 +4116,8 @@ os_putchar_epilogue:
 	ldw r21, 84(et)
 	ldw r22, 88(et)
 	ldw r23, 92(et)
-	# NOTE: restoring `et` is superfluous
-	ldw r24, 96(et)
+	# NOTE: don't overwrite et
+	#ldw r24, 96(et)
 	ldw r25, 100(et)
 	ldw r26, 104(et)
 	ldw r27, 108(et)
