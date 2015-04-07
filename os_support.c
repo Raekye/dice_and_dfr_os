@@ -646,80 +646,76 @@ void welcome_to_summoners_rift() {
 
 /* ps2 */
 char ps2_decode(char x) {
-	if (!ps2_initialized) {
-		ps2_init();
-		ps2_initialized = true;
-	}
-	ascii[0x1C] = 'a';
-	ascii[0x32] = 'b';
-	ascii[0x21] = 'c';
-	ascii[0x23] = 'd';
-	ascii[0x24] = 'e';
-	ascii[0x2B] = 'f';
-	ascii[0x34] = 'g';
-	ascii[0x33] = 'h';
-	ascii[0x43] = 'i';
-	ascii[0x3B] = 'j';
-	ascii[0x42] = 'k';
-	ascii[0x4B] = 'l';
-	ascii[0x3A] = 'm';
-	ascii[0x31] = 'n';
-	ascii[0x44] = 'o';
-	ascii[0x4D] = 'p';
-	ascii[0x15] = 'q';
-	ascii[0x2D] = 'r';
-	ascii[0x1B] = 's';
-	ascii[0x2C] = 't';
-	ascii[0x3C] = 'u';
-	ascii[0x2A] = 'v';
-	ascii[0x1D] = 'w';
-	ascii[0x22] = 'x';
-	ascii[0x35] = 'y';
-	ascii[0x1A] = 'z';
+	if (x == 0x1C) return 'a';
+	if (x == 0x32) return 'b';
+	if (x == 0x21) return 'c';
+	if (x == 0x23) return 'd';
+	if (x == 0x24) return 'e';
+	if (x == 0x2B) return 'f';
+	if (x == 0x34) return 'g';
+	if (x == 0x33) return 'h';
+	if (x == 0x43) return 'i';
+	if (x == 0x3B) return 'j';
+	if (x == 0x42) return 'k';
+	if (x == 0x4B) return 'l';
+	if (x == 0x3A) return 'm';
+	if (x == 0x31) return 'n';
+	if (x == 0x44) return 'o';
+	if (x == 0x4D) return 'p';
+	if (x == 0x15) return 'q';
+	if (x == 0x2D) return 'r';
+	if (x == 0x1B) return 's';
+	if (x == 0x2C) return 't';
+	if (x == 0x3C) return 'u';
+	if (x == 0x2A) return 'v';
+	if (x == 0x1D) return 'w';
+	if (x == 0x22) return 'x';
+	if (x == 0x35) return 'y';
+	if (x == 0x1A) return 'z';
 
-	ascii[0x45] = '0';
-	ascii[0x16] = '1';
-	ascii[0x1E] = '2';
-	ascii[0x26] = '3';
-	ascii[0x25] = '4';
-	ascii[0x2E] = '5';
-	ascii[0x36] = '6';
-	ascii[0x3D] = '7';
-	ascii[0x3E] = '8';
-	ascii[0x46] = '9';
-	ascii[0x0E] = '`';
-	ascii[0x4E] = '-';
-	ascii[0x55] = '=';
-	ascii[0x5D] = '\\';
+	if (x == 0x45) return '0';
+	if (x == 0x16) return '1';
+	if (x == 0x1E) return '2';
+	if (x == 0x26) return '3';
+	if (x == 0x25) return '4';
+	if (x == 0x2E) return '5';
+	if (x == 0x36) return '6';
+	if (x == 0x3D) return '7';
+	if (x == 0x3E) return '8';
+	if (x == 0x46) return '9';
+	if (x == 0x0E) return '`';
+	if (x == 0x4E) return '-';
+	if (x == 0x55) return '=';
+	if (x == 0x5D) return '\\';
 
-	ascii[0x66] = 0x08; // backspace
-	ascii[0x29] = ' ';
-	ascii[0x0D] = '\t';
+	if (x == 0x66) return 0x08; // backspace
+	if (x == 0x29) return ' ';
+	if (x == 0x0D) return '\t';
 	
-	ascii[0x5A] = '\n';
+	if (x == 0x5A) return '\n';
 
-	ascii[0x54] = '[';
-	ascii[0x7C] = '*';
-	ascii[0x7B] = '-';
-	ascii[0x79] = '+';
-	ascii[0x71] = '.';
-	ascii[0x70] = '0';
-	ascii[0x69] = '1';
-	ascii[0x72] = '2';
-	ascii[0x7A] = '3';
-	ascii[0x6B] = '4';
-	ascii[0x73] = '5';
-	ascii[0x74] = '6';
-	ascii[0x6C] = '7';
-	ascii[0x75] = '8';
-	ascii[0x7D] = '9';
-	ascii[0x5B] = ']';
-	ascii[0x4C] = ';';
-	ascii[0x52] = '\'';
-	ascii[0x41] = ',';
-	ascii[0x49] = '.';
-	ascii[0x4A] = '/';
-	return ps2_ascii[x];
+	if (x == 0x54) return '[';
+	if (x == 0x7C) return '*';
+	if (x == 0x7B) return '-';
+	if (x == 0x79) return '+';
+	if (x == 0x71) return '.';
+	if (x == 0x70) return '0';
+	if (x == 0x69) return '1';
+	if (x == 0x72) return '2';
+	if (x == 0x7A) return '3';
+	if (x == 0x6B) return '4';
+	if (x == 0x73) return '5';
+	if (x == 0x74) return '6';
+	if (x == 0x6C) return '7';
+	if (x == 0x75) return '8';
+	if (x == 0x7D) return '9';
+	if (x == 0x5B) return ']';
+	if (x == 0x4C) return ';';
+	if (x == 0x52) return '\'';
+	if (x == 0x41) return ',';
+	if (x == 0x49) return '.';
+	if (x == 0x4A) return '/';
+	return 0;
 }
 
 void ps2_init() {
