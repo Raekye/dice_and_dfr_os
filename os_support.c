@@ -277,20 +277,20 @@ void bdel() {
 				bdel_printstr("Invalid name\n");
 				continue;
 			}
+			int node_id = os_romania_node_from_name(cwd, name);
+			if (node_id == 0) {
+				bdel_printstr("Unknown file/folder\n");
+				continue;
+			}
+			if (os_romania_is_dir(node_id)) {
+				bdel_printstr("Cannot exec a directory\n");
+				continue;
+			}
 			int pid = os_fork();
 			if (pid == 0) {
-				int node_id = os_romania_node_from_name(cwd, name);
-				if (node_id == 0) {
-					bdel_printstr("Unknown file/folder\n");
-				} else {
-					if (os_romania_is_dir(node_id)) {
-						bdel_printstr("Cannot exec a directory\n");
-						continue;
-					}
-					Vechs* v = os_cat(node_id);
-					susan(v);
-					os_vechs_delete(v);
-				}
+				Vechs* v = os_cat(node_id);
+				susan(v);
+				os_vechs_delete(v);
 				os_mort();
 			} else {
 				if (!bg) {
@@ -440,16 +440,26 @@ int bdel_readhex() {
 	while (stage < 2) {
 		char ch = bdel_readchar();
 		if (stage == 0) {
-			stage = (ch == '0') ? 1 : 0;
+			if (ch == '0') {
+				bdel_putchar(ch);
+				stage = 1;
+			} else {
+				stage = 0;
+			}
 		} else if (stage == 1) {
-			stage = (ch == 'x') ? 2 : 0;
+			if (ch == 'x') {
+				bdel_putchar(ch);
+				stage = 2;
+			} else {
+				stage = 1;
+			}
 		}
 	}
 	int x = 0;
 	while (true) {
 		char ch = bdel_readchar();
-		bdel_putchar(ch);
 		if (ch == '\n') {
+			bdel_putchar(ch);
 			break;
 		}
 		int val = -1;
@@ -460,6 +470,7 @@ int bdel_readhex() {
 		}
 		if (val >= 0) {
 			x = (x * 16) + val;
+			bdel_putchar(ch);
 		}
 	}
 	return x;

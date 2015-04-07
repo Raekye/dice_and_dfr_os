@@ -309,6 +309,28 @@ int susan_eval_line(char* line, int pc, int* registers, int* memory) {
 			return -1;
 		}
 		memory[registers[r]] = registers[r2];
+	} else if (streq(cmd, "putchar")) {
+		if (num_parts < 2) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+		int r = susan_parse_register(parts[1]);
+		if (r < 0) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+		bdel_putchar(registers[r]);
+	} else if (streq(cmd, "sleep")) {
+		if (num_parts < 2) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+		int r = susan_parse_register(parts[1]);
+		if (r < 0) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+		os_sleep(registers[r]);
 	} else {
 		bdel_printstr("Syntax error: unknown ");
 		bdel_printstr(cmd);
