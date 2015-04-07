@@ -42,15 +42,15 @@
  * Reality at me abhors,
  * And she begins to laugh.
  *
- * The fatigue is gone from Susan's eyes, all teeth are clenched in hate.
- * The world -was- destined to be this way, but she will change her fate.
- * And now the Q is raised, and now she lets it go,
- * And now the air is shattered by the force of Susan's blow.
+ * The fatigue is gone from Nasus' eyes, all teeth are clenched in hate.
+ * The world -was- destined to be this way, but he will change his fate.
+ * And now his Q is raised, and now his lets it go,
+ * And now the air is shattered by the force of Nasus' blow.
  *
  * Oh, somewhere in the fields of justice the sun is shining bright,
  * DJ Sona is playing somewhere, and somewhere hearts are light.
  * And somewhere Zeds are laughing, and somewhere Teemos shout.
- * But there is no joy for Susan for her destiny played out!
+ * But there is no joy for Nasus for his destiny played out!
  * - One of dfr
  *
  */
@@ -58,5 +58,5 @@
 #include "os.h"
 
 void susan(Vechs* v) {
-	os_printstr_sync("So wise so young, never do they live long.\n");
+	bdel_printstr("So wise so young, never do they live long.\n");
 }

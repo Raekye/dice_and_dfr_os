@@ -23,6 +23,8 @@ static bool str_startswith(char*, char*);
 static int str_split(char*, char);
 static void vechs_append_str(Vechs*, char*);
 
+static bool file_exists(int, char*);
+
 /* important */
 int main() {
 	seog_ti_os();
@@ -114,6 +116,10 @@ void bdel() {
 			if (n <= 0 || n > 12) {
 				bdel_printstr("Invalid name\n");
 			} else {
+				if (file_exists(cwd, name)) {
+					bdel_printstr("File/directory already exists\n");
+					continue;
+				}
 				os_touch(cwd, name);
 			}
 		} else if (streq(exec, "mkdir")) {
@@ -126,6 +132,10 @@ void bdel() {
 			if (n <= 0 || n > 12) {
 				bdel_printstr("Invalid name\n");
 			} else {
+				if (file_exists(cwd, name)) {
+					bdel_printstr("File/directory already exists\n");
+					continue;
+				}
 				os_mkdir(cwd, name);
 			}
 		} else if (streq(exec, "cat")) {
@@ -142,6 +152,10 @@ void bdel() {
 				if (node_id == 0) {
 					bdel_printstr("Unknown file/folder\n");
 				} else {
+					if (os_romania_is_dir(node_id)) {
+						bdel_printstr("Cannot cat directory\n");
+						continue;
+					}
 					Vechs* contents = os_cat(node_id);
 					int n = os_vechs_size(contents);
 					for (int i = 0; i < n; i++) {
@@ -172,6 +186,14 @@ void bdel() {
 			if (node_id == 0) {
 				bdel_printstr("Unknown file/folder\n");
 			} else {
+				if (os_romania_is_dir(node_id)) {
+					bdel_printstr("Cannot copy directory\n");
+					continue;
+				}
+				if (file_exists(cwd, name2)) {
+					bdel_printstr("Destination file already exists\n");
+					continue;
+				}
 				os_cp(node_id, cwd, name2);
 			}
 		} else if (streq(exec, "rm")) {
@@ -230,6 +252,10 @@ void bdel() {
 				if (node_id == 0) {
 					bdel_printstr("Unknown file/folder\n");
 				} else {
+					if (os_romania_is_dir(node_id)) {
+						bdel_printstr("Cannot edit directory with skye\n");
+						continue;
+					}
 					Vechs* v = skye();
 					os_fwrite(node_id, v);
 					os_vechs_delete(v);
@@ -252,6 +278,10 @@ void bdel() {
 				if (node_id == 0) {
 					bdel_printstr("Unknown file/folder\n");
 				} else {
+					if (os_romania_is_dir(node_id)) {
+						bdel_printstr("Cannot exec a directory\n");
+						continue;
+					}
 					Vechs* v = os_cat(node_id);
 					susan(v);
 					os_vechs_delete(v);
@@ -577,6 +607,10 @@ void vechs_append_str(Vechs* v, char* str) {
 		os_vechs_push(v, str[i]);
 		i++;
 	}
+}
+
+bool file_exists(int dir, char* name) {
+	return os_romania_node_from_name(dir, name) != 0;
 }
 
 /* ps2 decoder */
