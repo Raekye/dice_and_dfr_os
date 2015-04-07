@@ -2423,7 +2423,7 @@ os_mort:
 	mov r15, r2
 	# get process table entry
 	mov r4, r15
-	call os_process_table_entry
+	call os_process_table_entry_from_index
 	mov r9, r2
 
 	# I will not wait for my children
@@ -2443,6 +2443,7 @@ os_mort:
 	# get parent index
 	mov r4, r10
 	call os_process_table_index
+	mov r13, r2
 	# offset = index * size
 	muli r14, r13, 4
 	# address = base + offset
@@ -2456,7 +2457,7 @@ os_mort:
 
 os_mort_notify_parent:
 	# get parent process table entry
-	mov r4, r14
+	mov r4, r13
 	call os_process_table_entry_from_index
 	# update parent status
 	movi r14, 1
@@ -2473,7 +2474,7 @@ os_mort_release_foreground:
 
 os_mort_had_foreground:
 	# delegate foreground to parent
-	stw r11, 0(r23)
+	stw r10, 0(r23)
 	# next phase
 	br os_mort_adopt_children
 
