@@ -4,6 +4,9 @@
 #define TTY_MAX_Y 60
 #define VGA_ADDRESS 0x09000000
 #define PS2_ADDRESS 0x10000100
+#define PS2_DATA (PS2_ADDRESS)
+#define PS2_CTRL (PS2_ADDRESS + 4)
+#define RED_LEDS 0x10000000
 
 /* data */
 int tty_x = 0;
@@ -505,15 +508,6 @@ void tty_putdec(unsigned x) {
 	}
 }
 
-/* ps2 */
-// decoder at bottom of file
-char ps2_read_keyboard() {
-	unsigned ps2_data = *((unsigned*) PS2_ADDRESS);
-	char byte = ps2_data & 0xff;
-	*((unsigned*) PS2_ADDRESS) = 0xff;
-	return ps2_decode(byte);
-}
-
 /* plebs */
 void prog_print_odd() {
 	for (int i = 1; i < 8; i += 2) {
@@ -650,12 +644,81 @@ void welcome_to_summoners_rift() {
 	bdel_putchar('\n');
 }
 
-/* ps2 decoder */
+/* ps2 */
 char ps2_decode(char x) {
 	if (!ps2_initialized) {
 		ps2_init();
 		ps2_initialized = true;
 	}
+	ascii[0x1C] = 'a';
+	ascii[0x32] = 'b';
+	ascii[0x21] = 'c';
+	ascii[0x23] = 'd';
+	ascii[0x24] = 'e';
+	ascii[0x2B] = 'f';
+	ascii[0x34] = 'g';
+	ascii[0x33] = 'h';
+	ascii[0x43] = 'i';
+	ascii[0x3B] = 'j';
+	ascii[0x42] = 'k';
+	ascii[0x4B] = 'l';
+	ascii[0x3A] = 'm';
+	ascii[0x31] = 'n';
+	ascii[0x44] = 'o';
+	ascii[0x4D] = 'p';
+	ascii[0x15] = 'q';
+	ascii[0x2D] = 'r';
+	ascii[0x1B] = 's';
+	ascii[0x2C] = 't';
+	ascii[0x3C] = 'u';
+	ascii[0x2A] = 'v';
+	ascii[0x1D] = 'w';
+	ascii[0x22] = 'x';
+	ascii[0x35] = 'y';
+	ascii[0x1A] = 'z';
+
+	ascii[0x45] = '0';
+	ascii[0x16] = '1';
+	ascii[0x1E] = '2';
+	ascii[0x26] = '3';
+	ascii[0x25] = '4';
+	ascii[0x2E] = '5';
+	ascii[0x36] = '6';
+	ascii[0x3D] = '7';
+	ascii[0x3E] = '8';
+	ascii[0x46] = '9';
+	ascii[0x0E] = '`';
+	ascii[0x4E] = '-';
+	ascii[0x55] = '=';
+	ascii[0x5D] = '\\';
+
+	ascii[0x66] = 0x08; // backspace
+	ascii[0x29] = ' ';
+	ascii[0x0D] = '\t';
+	
+	ascii[0x5A] = '\n';
+
+	ascii[0x54] = '[';
+	ascii[0x7C] = '*';
+	ascii[0x7B] = '-';
+	ascii[0x79] = '+';
+	ascii[0x71] = '.';
+	ascii[0x70] = '0';
+	ascii[0x69] = '1';
+	ascii[0x72] = '2';
+	ascii[0x7A] = '3';
+	ascii[0x6B] = '4';
+	ascii[0x73] = '5';
+	ascii[0x74] = '6';
+	ascii[0x6C] = '7';
+	ascii[0x75] = '8';
+	ascii[0x7D] = '9';
+	ascii[0x5B] = ']';
+	ascii[0x4C] = ';';
+	ascii[0x52] = '\'';
+	ascii[0x41] = ',';
+	ascii[0x49] = '.';
+	ascii[0x4A] = '/';
 	return ps2_ascii[x];
 }
 
@@ -705,11 +768,10 @@ void ps2_init() {
 	ascii[0x5D] = '\\';
 
 	ascii[0x66] = 0x08; // backspace
-	ascii[0x29] = 0x20;
-	ascii[0x0D] = 0x09;
+	ascii[0x29] = ' ';
+	ascii[0x0D] = '\t';
 	
 	ascii[0x5A] = '\n';
-	ascii[0x76] = 0x1B;
 
 	ascii[0x54] = '[';
 	ascii[0x7C] = '*';
@@ -733,3 +795,39 @@ void ps2_init() {
 	ascii[0x49] = '.';
 	ascii[0x4A] = '/';
 }
+
+/*
+void ps2_interrupt_handler() {
+	volatile unsigned char* addr = (volatile unsigned char*) PS2_DATA;
+	unsigned char data = *addr;
+	// break code
+	if (data == 0xf0) {
+		ps2_last_was_break = true;
+		return;
+	}
+	if (ps2_last_was_break) {
+		// shift code
+		if (data == 0x12) {
+			ps2_shift_down = false;
+			*((volatile char*) RED_LEDS) = 0;
+		}
+		ps2_last_was_break = false;
+		return;
+	}
+	if (data == ps2_last_make) {
+		// ignore
+		return;
+	}
+	// shift code
+	if (data == 0x12) {
+		ps2_shift_down = true;
+		*((volatile char*) RED_LEDS) = 1;
+		return;
+	}
+	char ch = ps2_decode(data);
+	if (ch != 0) {
+		interrupt_have_byte_for_read(ch);
+	}
+	ps2_last_make = data;
+}
+*/

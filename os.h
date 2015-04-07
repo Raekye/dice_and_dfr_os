@@ -12,8 +12,16 @@ typedef struct {
 	int size;
 } Vechs;
 
+// data
+extern int tty_x;
+extern int tty_y;
+extern bool ps2_initialized;
+extern char ps2_ascii[];
+
 // os.s
 int seog_ti_os();
+
+void interrupt_have_byte_for_read(char);
 
 char* os_malloc(int);
 void os_free(void*);
@@ -90,6 +98,7 @@ char* tty_readline();
 // ps2
 void ps2_init();
 char ps2_decode(char);
-char ps2_read_keyboard();
+//char ps2_read_keyboard();
+//void ps2_interrupt_handler();
 
 #endif

@@ -166,6 +166,9 @@
 
 .global seog_ti_os
 
+.global interrupt_have_byte_for_read
+.global ps2_is_shift_down
+
 .global os_fork
 .global os_mort
 .global os_foreground_delegate
@@ -253,9 +256,9 @@
 .equ TIMER_PERIOD_L, 8
 .equ TIMER_PERIOD_H, 12
 .equ CYCLES_PER_HUNDRED_MILLISECONDS, 5000000
-.equ PS_2,			 0x10000100
-.equ PS_2_DATA,		 0
-.equ PS_2_CONTROL,	 4
+.equ PS_2, 0x10000100
+.equ PS_2_DATA, 0
+.equ PS_2_CONTROL, 4
 .equ BREAK_IGNORE, 0
 
 /* DATA */
@@ -313,10 +316,16 @@ PROCESS_IO_YOLOQ:
 PROCESS_REGISTERS_TMP:
 	.skip PROCESS_REGISTERS_TMP_BYTES
 
-STDIN:
-	.skip 4
+PS2_LAST_WAS_BREAK:
+	.word 0
 
-PS2_BREAK_IGNORE:
+PS2_LAST_MAKE:
+	.word 0
+
+PS2_SHIFT:
+	.word 0
+
+STDIN:
 	.skip 4
 
 EPSILON:
@@ -382,6 +391,11 @@ ISR:
 	stw r30, 120(et)
 	stw r31, 124(et)
 
+	# check for PS2
+	rdctl et, ctl4
+	andi et, et, 0x80 # bit 7
+	bne et, r0, ISR_HANDLE_PS2
+
 	# check for timer
 	rdctl et, ctl4
 	andi et, et, 1
@@ -391,11 +405,6 @@ ISR:
 	rdctl et, ctl4
 	andi et, et, 0x100 # bit 8
 	bne et, r0, ISR_HANDLE_JTAG_UART
-
-	# check for PS2
-	rdctl et, ctl4
-	andi et ,et, 0x80 # bit 7
-	bne et, r0, ISR_HANDLE_PS2
 
 	# unknown interrupt
 	br ISR_EPILOGUE
@@ -512,68 +521,68 @@ interrupt_handle_jtag_uart_epilogue:
 	ret
 
 interrupt_handle_ps2:
-	addi sp, sp, -64
+	addi sp, sp, -4
 	stw ra, 0(sp)
-	stw r1, 4(sp)
-	stw r2, 8(sp)
-	stw r3, 12(sp)
-	stw r4, 16(sp)
-	stw r5, 20(sp)
-	stw r6, 24(sp)
-	stw r7, 28(sp)
-	stw r8, 32(sp)
-	stw r9, 36(sp)
-	stw r10, 40(sp)
-	stw r11, 44(sp)
-	stw r12, 48(sp)
-	stw r13, 52(sp)
-	stw r14, 56(sp)
-	stw r15, 60(sp)
-	
-	movia r3,PS_2
-    movia r2, PS2_BREAK_IGNORE
-    ldb et, (r2)
-    bne et,r0,interrupt_handle_break_2
-    movui et, 0xf0
-    ldbuio r4, (r3)
-    beq et, r4, interrupt_handle_break_1
 
-interrupt_handle_ps2_make:
-	# TODO, decode
-	movia r5, LEDS_GREEN
-	stwio r4, (r5)
+	movia r23, PS_2
+	movia r22, PS2_LAST_WAS_BREAK
+	movia r21, PS2_LAST_MAKE
+	movia r20, PS2_SHIFT
+	movia r19, 0xf0
+	movia r18, 0x12
+
+	ldw r8, 0(r22)
+	ldw r9, 0(r21)
+	movi r10, 1
+
+	# read
+	ldbio r4, PS_2_DATA(r23)
+
+	# break code
+	beq r4, r19, interrupt_handle_ps2_break
+
+	# last was break, this is the scan code
+	bne r8, r0, interrupt_handle_ps2_break_code
+
+	# if same make code, ignore
+	beq r4, r9, interrupt_handle_ps2_epilogue
+
+	# last_make = data
+	stw r4, 0(r21)
+
+	# shift down
+	beq r4, r18, interrupt_handle_ps2_shift
+
+	call ps2_decode
+	mov r4, r2
+	call interrupt_have_byte_for_read
 	br interrupt_handle_ps2_epilogue
-	
-interrupt_handle_break_1:
-    movi et,1
-    movia r2,PS2_BREAK_IGNORE
-    stb et,(r2)
-    br interrupt_handle_ps2_epilogue
 
-interrupt_handle_break_2:
-    ldbuio r0,(r3)
-    movia r2,PS2_BREAK_IGNORE
-    stb r0,(r2)
-    br interrupt_handle_ps2_epilogue
+interrupt_handle_ps2_break:
+	# last_was_break = true
+	stw r10, 0(r22)
+	br interrupt_handle_ps2_epilogue
+
+interrupt_handle_ps2_break_code:
+	# last_was_break = false
+	stw r0, 0(r22)
+	# if broke shift
+	beq r4, r18, interrupt_handle_ps2_break_shift
+	br interrupt_handle_ps2_epilogue
+
+interrupt_handle_ps2_break_shift:
+	# shift = false
+	stw r0, 0(r20)
+	br interrupt_handle_ps2_epilogue
+
+interrupt_handle_ps2_shift:
+	# shift = true
+	stw r10, 0(r20)
+	br interrupt_handle_ps2_epilogue
 
 interrupt_handle_ps2_epilogue:
 	ldw ra, 0(sp)
-	ldw r1, 4(sp)
-	ldw r2, 8(sp)
-	ldw r3, 12(sp)
-	ldw r4, 16(sp)
-	ldw r5, 20(sp)
-	ldw r6, 24(sp)
-	ldw r7, 28(sp)
-	ldw r8, 32(sp)
-	ldw r9, 36(sp)
-	ldw r10, 40(sp)
-	ldw r11, 44(sp)
-	ldw r12, 48(sp)
-	ldw r13, 52(sp)
-	ldw r14, 56(sp)
-	ldw r15, 60(sp)
-	addi sp, sp, 64
+	addi sp, sp, 4
 	ret
 
 /*
@@ -776,15 +785,13 @@ seog_ti_os:
 	stwio r9, JTAG_UART_CTRL(r8)
 
 	# enable PS2 interrupts
-	/*
 	movia r8, PS_2
 	movi r9, 0x01 # enable read interrupt
 	stwio r9, PS_2_CONTROL(r8)
-	*/
 
 	# enable irq interrupts
+	movi r8, 0x080 # bit 8, 7, 0
 	#movi r8, 0x181 # bit 8, 7, 0
-	movi r8, 0x101 # bit 8, 0
 	wrctl ctl3, r8
 
 	# enable global interrupts, start shell
@@ -4669,6 +4676,12 @@ os_getup:
 	# update ctl0 and return
 	mov ea, ra
 	eret
+
+/* ps2 */
+ps2_is_shift_down:
+	movia r2, PS2_SHIFT
+	ldw r2, 0(r2)
+	ret
 
 /*
  * r8: counter
