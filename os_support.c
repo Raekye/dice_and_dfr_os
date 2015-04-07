@@ -18,7 +18,6 @@ static void prog_add();
 
 static int read_int();
 static void write_int(int);
-static char* read_line();
 
 static bool str_startswith(char*, char*);
 static int str_split(char*, char);
@@ -33,30 +32,62 @@ void bdel() {
 	int cwd = 0;
 	char* prompt = "bdel$ ";
 	while (true) {
-		os_printstr_sync(prompt);
-		char* cmd = read_line();
-		if (str_startswith(cmd, "odd")) {
+		// prompt
+		bdel_printstr(prompt);
+		char* cmd = bdel_readline();
+
+		// parse
+		char** argv = NULL;
+		int argc = 0;
+		skye_parse(cmd, &argv, &argc);
+		os_free(cmd);
+
+		// check for empty
+		if (argc == 0) {
+			continue;
+		}
+
+		// check for background
+		int pos = 0;
+		bool bg = false;
+		if (argc > 1 && os_strcmp(argv[0], "bg") == 0) {
+			pos = 1;
+			bg = true;
+		}
+
+		// get command and switch
+		char* exec = argv[pos++];
+		if (streq(exec, "odd")) {
 			int pid = os_fork();
 			if (pid == 0) {
 				prog_print_odd();
 			} else {
-				//os_foreground_delegate(pid);
+				if (!bg) {
+					os_foreground_delegate(pid);
+					os_wait(pid);
+				}
 			}
-		} else if (str_startswith(cmd, "even")) {
+		} else if (streq(exec, "even")) {
 			int pid = os_fork();
 			if (pid == 0) {
 				prog_print_even();
 			} else {
-				//os_foreground_delegate(pid);
+				if (!bg) {
+					os_foreground_delegate(pid);
+					os_wait(pid);
+				}
 			}
-		} else if (str_startswith(cmd, "add")) {
+		} else if (streq(exec, "add")) {
 			int pid = os_fork();
 			if (pid == 0) {
 				prog_add();
 			} else {
-				os_foreground_delegate(pid);
+				if (!bg) {
+					os_foreground_delegate(pid);
+					os_wait(pid);
+				}
 			}
-		} else if (str_startswith(cmd, "ls")) {
+		} else if (streq(exec, "ls")) {
 			Vechs* v = os_cat(cwd);
 			int n = os_vechs_size(v);
 			for (int i = 0; i < n; i++) {
@@ -66,41 +97,50 @@ void bdel() {
 				if (os_romania_is_dir(id)) {
 					type = 'D';
 				}
-				os_putchar_sync(type);
-				os_printstr_sync(": ");
-				os_printstr_sync(name);
-				os_putchar_sync('\n');
+				bdel_putchar(type);
+				bdel_printstr(": ");
+				bdel_printstr(name);
+				bdel_putchar('\n');
 				os_free(name);
 			}
 			os_vechs_delete(v);
-		} else if (str_startswith(cmd, "touch ")) {
-			int i = str_split(cmd, ' ');
-			char* name = cmd + i;
+		} else if (streq(exec, "touch")) {
+			if (pos == argc) {
+				bdel_printstr("Not enough arguments\n");
+				continue;
+			}
+			char* name = argv[pos];
 			int n = os_strlen(name);
 			if (n <= 0 || n > 12) {
-				os_printstr_sync("Invalid name\n");
+				bdel_printstr("Invalid name\n");
 			} else {
 				os_touch(cwd, name);
 			}
-		} else if (str_startswith(cmd, "mkdir ")) {
-			int i = str_split(cmd, ' ');
-			char* name = cmd + i;
+		} else if (streq(exec, "mkdir")) {
+			if (pos == argc) {
+				bdel_printstr("Not enough arguments\n");
+				continue;
+			}
+			char* name = argv[pos];
 			int n = os_strlen(name);
 			if (n <= 0 || n > 12) {
-				os_printstr_sync("Invalid name\n");
+				bdel_printstr("Invalid name\n");
 			} else {
 				os_mkdir(cwd, name);
 			}
-		} else if (str_startswith(cmd, "cat ")) {
-			int i = str_split(cmd, ' ');
-			char* name = cmd + i;
+		} else if (streq(exec, "cat")) {
+			if (pos == argc) {
+				bdel_printstr("Not enough arguments\n");
+				continue;
+			}
+			char* name = argv[pos];
 			int n = os_strlen(name);
 			if (n <= 0 || n > 12) {
-				os_printstr_sync("Invalid name\n");
+				bdel_printstr("Invalid name\n");
 			} else {
 				int node_id = os_romania_node_from_name(cwd, name);
 				if (node_id == 0) {
-					os_printstr_sync("Unknown file/folder\n");
+					bdel_printstr("Unknown file/folder\n");
 				} else {
 					Vechs* contents = os_cat(node_id);
 					int n = os_vechs_size(contents);
@@ -110,87 +150,126 @@ void bdel() {
 					os_vechs_delete(contents);
 				}
 			}
-		} else if (str_startswith(cmd, "cp ")) {
-			int i = str_split(cmd, ' ');
-			char* name = cmd + i;
-			int n = os_strlen(name);
-			if (n <= 0 || n > 12) {
-				os_printstr_sync("Invalid name\n");
-			} else {
-				int node_id = os_romania_node_from_name(cwd, name);
-				if (node_id == 0) {
-					os_printstr_sync("Unknown file/folder\n");
-				} else {
-					int i2 = str_split(name, ' ');
-					char* name2 = cmd + i;
-					int n2 = os_strlen(name2);
-					if (n2 <= 0 || n2 > 12) {
-						os_printstr_sync("Invalid name\n");
-					} else {
-						os_cp(node_id, cwd, name2);
-					}
-				}
+		} else if (streq(exec, "cp")) {
+			if (pos + 1 >= argc) {
+				bdel_printstr("Not enough arguments\n");
+				continue;
 			}
-		} else if (str_startswith(cmd, "rm ")) {
-			int i = str_split(cmd, ' ');
-			char* name = cmd + i;
+			char* name = argv[pos];
+			char* name2 = argv[pos + 1];
 			int n = os_strlen(name);
 			if (n <= 0 || n > 12) {
-				os_printstr_sync("Invalid name\n");
+				bdel_printstr("Invalid name\n");
+				continue;
+			}
+			n = os_strlen(name2);
+			if (n <= 0 || n > 12) {
+				bdel_printstr("Invalid name\n");
+				continue;
+			}
+			int node_id = os_romania_node_from_name(cwd, name);
+			if (node_id == 0) {
+				bdel_printstr("Unknown file/folder\n");
+			} else {
+				os_cp(node_id, cwd, name2);
+			}
+		} else if (streq(exec, "rm")) {
+			if (pos == argc) {
+				bdel_printstr("Not enough arguments\n");
+				continue;
+			}
+			char* name = argv[pos];
+			int n = os_strlen(name);
+			if (n <= 0 || n > 12) {
+				bdel_printstr("Invalid name\n");
 			} else {
 				int node_id = os_romania_node_from_name(cwd, name);
 				if (node_id == 0) {
-					os_printstr_sync("Unknown file/folder\n");
+					bdel_printstr("Unknown file/folder\n");
 				} else {
 					os_rm(node_id);
 				}
 			}
-		} else if (str_startswith(cmd, "skye ")) {
-			int pid = os_fork();
-			if (pid == 0) {
-				int i = str_split(cmd, ' ');
-				char* name = cmd + i;
-				int n = os_strlen(name);
-				if (n <= 0 || n > 12) {
-					os_printstr_sync("Invalid name\n");
-				} else {
-					int node_id = os_romania_node_from_name(cwd, name);
-					if (node_id == 0) {
-						os_printstr_sync("Unknown file/folder\n");
-					} else {
-						Vechs* v = skye();
-						os_fwrite(node_id, v);
-						os_vechs_delete(v);
-					}
-				}
-			} else {
-				os_foreground_delegate(pid);
+		} else if (streq(exec, "cd")) {
+			if (pos == argc) {
+				bdel_printstr("Not enough arguments\n");
+				continue;
 			}
-		} else if (str_startswith(cmd, "susan ")) {
-			int pid = os_fork();
-			if (pid == 0) {
-				int i = str_split(cmd, ' ');
-				char* name = cmd + i;
+			char* name = argv[pos];
+			if (streq(exec, "..")) {
+				cwd = os_romania_parent(cwd);
+			} else {
 				int n = os_strlen(name);
-				if (n <= 0 || n > 12) {
-					os_printstr_sync("Invalid name\n");
+				if (n < = 0 || n > 12) {
+					bdel_printstr("Invalid name\n");
 				} else {
 					int node_id = os_romania_node_from_name(cwd, name);
 					if (node_id == 0) {
-						os_printstr_sync("Unknown file/folder\n");
+						bdel_printstr("Unknown file/folder\n");
 					} else {
-						Vechs* v = os_cat(node_id);
-						susan(v);
-						os_vechs_delete(v);
+						if (os_romania_is_dir(node_id)) {
+							cwd = node_id;
+						} else {
+							bdel_printstr("Not a directory\n");
+						}
 					}
 				}
+			}
+		} else if (streq(exec, "skye")) {
+			if (pos == argc) {
+				bdel_printstr("Not enough arguments\n");
+				continue;
+			}
+			char* name = argv[pos];
+			int n = os_strlen(name);
+			if (n <= 0 || n > 12) {
+				bdel_printstr("Invalid name\n");
 			} else {
-				os_foreground_delegate(pid);
+				int node_id = os_romania_node_from_name(cwd, name);
+				if (node_id == 0) {
+					bdel_printstr("Unknown file/folder\n");
+				} else {
+					Vechs* v = skye();
+					os_fwrite(node_id, v);
+					os_vechs_delete(v);
+				}
+			}
+		} else if (streq(exec, "susan")) {
+			if (pos == argc) {
+				bdel_printstr("Not enough arguments\n");
+				continue;
+			}
+			char* name = argv[pos];
+			int n = os_strlen(name);
+			if (n <= 0 || n > 12) {
+				bdel_printstr("Invalid name\n");
+				continue;
+			}
+			int pid = os_fork();
+			if (pid == 0) {
+				int node_id = os_romania_node_from_name(cwd, name);
+				if (node_id == 0) {
+					bdel_printstr("Unknown file/folder\n");
+				} else {
+					Vechs* v = os_cat(node_id);
+					susan(v);
+					os_vechs_delete(v);
+				}
+			} else {
+				if (!bg) {
+					os_foreground_delegate(pid);
+					os_wait(pid);
+				}
 			}
 		} else {
-			os_printstr_sync("Unknown command\n");
+			bdel_printstr("Unknown command\n");
 		}
-		os_free(cmd);
+
+		// free parse data
+		for (int i = 0; i < argc; i++) {
+			os_free(argv[i]);
+		}
+		os_free(argv);
 	}
 }
 
@@ -211,6 +290,75 @@ Vechs* skye() {
 		os_free(str);
 	}
 	return v;
+}
+
+void skye_parse(char* str, char*** argv, int* argc) {
+	Vechs* buffer = os_vechs_new(16);
+	char** parts = os_malloc(os_strlen(str) * sizeof(char*));
+	int num = 0;
+	int i = 0;
+	while (true) {
+		if (str[i] == ' ' || str[i] == '\0') {
+			if (os_vechs_size(buffer) > 0) {
+				parts[num++] = str_from_vechs(buffer);
+			}
+			if (str[i] == '\0') {
+				break;
+			}
+		} else {
+			os_vechs_push(buffer, str[i]);
+		}
+		i++;
+	}
+	os_vechs_delete(buffer);
+	*argv = parts;
+	*argc = num;
+}
+
+char* str_from_vechs(Vechs* v) {
+	int n = os_vechs_size(v);
+	char* str = os_malloc(n + 1);
+	for (int i = 0; i < n; i++) {
+		str[i] = os_vechs_get(v, i);
+	}
+	str[n] = '\0';
+	return str;
+}
+
+void bdel_putchar(char ch) {
+	os_putchar_sync(ch);
+}
+
+void bdel_printstr(char* str) {
+	os_printstr_sync(str)
+}
+
+char bdel_readchar() {
+	return os_readchar();
+}
+
+char* bdel_readline() {
+	Vechs* v = os_vechs_new(16);
+	while (true) {
+		char ch = bdel_readchar();
+		bdel_putchar(ch);
+		if (ch == '\x08') {
+			if (os_vechs_size(v) > 0) {
+				os_vechs_pop(v);
+			}
+			continue;
+		} else if (ch == '\n') {
+			break;
+		}
+		os_vechs_push(v, ch);
+	}
+	char* str = str_from_vechs(v);
+	os_vechs_delete(v);
+	return str;
+}
+
+bool streq(char* a, char* b) {
+	return os_strcmp(a, b) == 0;
 }
 
 /* tty */
@@ -353,31 +501,6 @@ void write_int(int x) {
 		x = x % power;
 		power /= 10;
 	}
-}
-
-char* read_line() {
-	Vechs* v = os_vechs_new(16);
-	while (true) {
-		char ch = os_readchar();
-		os_putchar_sync(ch);
-		if (ch == '\x7f') {
-			if (os_vechs_size(v) > 0) {
-				os_vechs_pop(v);
-			}
-			continue;
-		} else if (ch == '\n') {
-			break;
-		}
-		os_vechs_push(v, ch);
-	}
-	int n = os_vechs_size(v);
-	char* str = os_malloc(n + 1);
-	for (int i = 0; i < n; i++) {
-		str[i] = os_vechs_get(v, i);
-	}
-	str[n] = '\0';
-	os_vechs_delete(v);
-	return str;
 }
 
 bool str_startswith(char* str, char* prefix) {

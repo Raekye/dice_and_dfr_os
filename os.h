@@ -23,6 +23,7 @@ void os_mort();
 void os_foreground_delegate(int);
 void os_sleep(int);
 void os_pause(int);
+void os_wait(int);
 
 void os_putchar_sync(char);
 void os_printstr_sync(char*);
@@ -64,6 +65,13 @@ int os_strcmp(char*, char*);
 void bdel();
 void susan(Vechs*);
 Vechs* skye();
+void skye_parse(char*, char**, int*);
+void bdel_printstr(char*);
+void bdel_putchar(char);
+char bdel_readchar();
+char* bdel_readline();
+char* str_from_vechs(Vechs*);
+bool streq(char*, char*);
 
 // tty
 void tty_draw(int, int, char);

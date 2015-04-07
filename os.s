@@ -7,11 +7,7 @@
  * Hmmmmmm.
  *
  * TODO: fork pre-increments process num
- * TODO: test fork
- * TODO: test sleep
- * TODO: testfilesystem
- * TODO: name os_romania_node_from_name
- * TODO: os_romania_parent
+ * TODO: wait for child
  *
  * ## Conventions
  * - Most registers are callee-saved; I find this easier to work with
@@ -91,6 +87,7 @@
  *   - os_foreground_delegate
  *   - os_sleep
  *   - os_mort
+ *   - os_wait
  * - io
  *   - os_putchar
  *   - os_putchar_sync
@@ -127,6 +124,7 @@
  *     - 2: sleeping
  *     - 3: waiting IO write (currently UNUSED/uneeded)
  *     - 4: waiting IO read
+ *     - 5: waiting for child
  *   - bytes 16-19: parent process id
  * - each process has
  *   - saved registers for context switching (total 128 processes * 32 registers * 4 bytes)
@@ -135,6 +133,7 @@
  *   - 1 byte: executing process ID
  *   - 1 byte: foreground process ID (which proccess has the terminal, receives stdin)
  *   - 128 process table entries * 4 bytes: sleep time remaining for processes
+ *   - 128 process table entries * 4 bytes: waiting for child
  *   - 32 registers * 4 bytes: temporary register save
  *     - technically, `r0`, and `et` do not need to be saved, but there is space for them for consistency
  *   - 128 process table entries * 1 byte: data to be written to output
@@ -158,6 +157,7 @@
  * 9: vechs set/get < 0
  * 10: vechs set/get >= size
  * 11: foreground delegate to invalid child process
+ * 12: wait to invalid child process
  */
 
 /*
@@ -171,6 +171,7 @@
 .global os_foreground_delegate
 .global os_sleep
 .global os_pause
+.global os_wait
 .global os_supermandive
 .global os_getup
 
@@ -235,6 +236,7 @@
 .equ PROCESS_STACKS_EACH_BYTES, 4096
 
 .equ PROCESS_SLEEPING_BYTES, 512
+.equ PROCESS_WAITING_BYTES, 512
 .equ PROCESS_IO_OUT_BYTES, 128
 
 .equ PROCESS_REGISTERS_TMP_BYTES, 128
@@ -293,6 +295,9 @@ PROCESS_NUM:
 
 PROCESS_SLEEPING:
 	.skip PROCESS_SLEEPING_BYTES
+
+PROCESS_WAITING:
+	.skip PROCESS_WAITING_BYTES
 
 PROCESS_IO_OUT:
 	.skip PROCESS_IO_OUT_BYTES
@@ -2382,6 +2387,13 @@ os_fork_ova:
  * r8: current process id
  * r9: current process table entry
  * r10: load/store data for release_foreground
+ * r11: loaded byte
+ * r12: counter for looping through checking child processes
+ * r13: parent process table index
+ * r14: parent process table temporary data
+ * r15: current process table index
+ * r21: process waiting
+ * r22: process table max
  * r23: process foreground
  * NOTE: only call from user space
  */
@@ -2393,19 +2405,57 @@ os_mort:
 
 	movia r23, PROCESS_FOREGROUND
 	movia r22, PROCESS_TABLE_MAX
+	movia r21, PROCESS_WAITING
 
 	# get process id
 	call os_process_current
 	mov r8, r2
-	# get process table address
+	# get process table index
 	mov r4, r2
+	call process_table_index
+	mov r15, r2
+	# get process table entry
+	mov r4, r15
 	call os_process_table_entry
 	mov r9, r2
 
-	# get parent
-	ldw r10, PROCESS_TABLE_PARENT(r9)
+	# I will not wait for my children
+	# offset = index * size
+	muli r15, r15, 4
+	# address = base + offset
+	add r15, r21, r15
+	# update process waiting
+	stw r0, 0(r15)
+
 	# initialize counter for adopting children
 	mov r12, r0
+
+	# get parent
+	ldw r10, PROCESS_TABLE_PARENT(r9)
+
+	# get parent index
+	mov r4, r10
+	call os_process_table_index
+	# offset = index * size
+	muli r14, r13, 4
+	# address = base + offset
+	add r14, r21, r14
+	# get parent waiting process
+	ldw r14, 0(r14)
+	# if parent waiting for me
+	beq r14, r8, os_mort_notify_parent
+	# next phase
+	br os_mort_release_foreground
+
+os_mort_notify_parent:
+	# get parent process table entry
+	mov r4, r14
+	call os_process_table_entry_from_index
+	# update parent status
+	movi r14, 1
+	stb r14, PROCESS_TABLE_STATUS(r2)
+	# next phase
+	br os_mort_release_foreground
 
 os_mort_release_foreground:
 	# check foreground process
@@ -2663,6 +2713,132 @@ os_sleep_epilogue:
 
 os_sleep_afterstory:
 	ret
+
+/*
+ * @param child process id
+ * NOTE: only call from user space
+ */
+os_wait:
+	# disable interrupts
+	wrctl ctl0, r0
+
+	movia ea, os_wait_afterstory
+	movia et, PROCESS_REGISTERS_TMP
+	stw r1, 4(et)
+	stw r2, 8(et)
+	stw r3, 12(et)
+	stw r4, 16(et)
+	stw r5, 20(et)
+	stw r6, 24(et)
+	stw r7, 28(et)
+	stw r8, 32(et)
+	stw r9, 36(et)
+	stw r10, 40(et)
+	stw r11, 44(et)
+	stw r12, 48(et)
+	stw r13, 52(et)
+	stw r14, 56(et)
+	stw r15, 60(et)
+	stw r16, 64(et)
+	stw r17, 68(et)
+	stw r18, 72(et)
+	stw r19, 76(et)
+	stw r20, 80(et)
+	stw r21, 84(et)
+	stw r22, 88(et)
+	stw r23, 92(et)
+	# NOTE: don't overwrite et
+	#stw r24, 96(et)
+	stw r25, 100(et)
+	stw r26, 104(et)
+	stw r27, 108(et)
+	stw r28, 112(et)
+	stw r29, 116(et)
+	stw r30, 120(et)
+	stw r31, 124(et)
+
+	# get child process table entry
+	call os_process_table_entry
+
+	# get parent id
+	ldw r8, PROCESS_TABLE_PARENT(r2)
+
+	# get current process id
+	call os_process_current
+
+	# check permissions
+	bne r2, r8, os_wait_badness
+
+	movia r23, PROCESS_WAITING
+	# save child id in temporary register
+	mov r8, r4
+	# get table entry address
+	mov r4, r2
+	call os_process_table_index
+	# offset = index * size
+	muli r9, r2, 4
+	# address = base + offset
+	add r9, r23, r9
+	# save child process
+	stw r8, 0(r9)
+
+	# get table entry address
+	mov r4, r2
+	call os_process_table_entry_from_index
+	# save waiting child status byte
+	movi r9, 5
+	stw r9, PROCESS_TABLE_STATUS(r2)
+
+	call os_schedule
+
+os_wait_epilogue:
+	movia et, PROCESS_REGISTERS_TMP
+	ldw r1, 4(et)
+	ldw r2, 8(et)
+	ldw r3, 12(et)
+	ldw r4, 16(et)
+	ldw r5, 20(et)
+	ldw r6, 24(et)
+	ldw r7, 28(et)
+	ldw r8, 32(et)
+	ldw r9, 36(et)
+	ldw r10, 40(et)
+	ldw r11, 44(et)
+	ldw r12, 48(et)
+	ldw r13, 52(et)
+	ldw r14, 56(et)
+	ldw r15, 60(et)
+	ldw r16, 64(et)
+	ldw r17, 68(et)
+	ldw r18, 72(et)
+	ldw r19, 76(et)
+	ldw r20, 80(et)
+	ldw r21, 84(et)
+	ldw r22, 88(et)
+	ldw r23, 92(et)
+	# NOTE: don't overwrite et
+	#ldw r24, 96(et)
+	ldw r25, 100(et)
+	ldw r26, 104(et)
+	ldw r27, 108(et)
+	ldw r28, 112(et)
+	# don't overwrite `ea`
+	#ldw r29, 116(et)
+	ldw r30, 120(et)
+	ldw r31, 124(et)
+
+	# update ctl1
+	movi et, 1
+	wrctl ctl1, et
+	# jmp ea and update ctl0
+	eret
+
+os_wait_afterstory:
+	ret
+
+os_wait_badness:
+	movi r4, 12
+	br os_badness
 
 /*
  * Decrements sleep time remaining of all processes
