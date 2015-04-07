@@ -551,6 +551,9 @@ interrupt_handle_ps2:
 	beq r4, r9, interrupt_handle_ps2_epilogue
 
 	# shift down
+	movi r18, 0x12
+	beq r4, r18, interrupt_handle_ps2_shift
+	movi r18, 0x59
 	beq r4, r18, interrupt_handle_ps2_shift
 
 	# last_make = data
@@ -581,6 +584,9 @@ interrupt_handle_ps2_break_code:
 	movi r3, 0x1F
 	stw r3, 0(r21)
 	# if broke shift
+	movi r18, 0x12
+	beq r4, r18, interrupt_handle_ps2_break_shift
+	movi r18, 0x59
 	beq r4, r18, interrupt_handle_ps2_break_shift
 	
 	br interrupt_handle_ps2_epilogue
