@@ -72,6 +72,7 @@ void susan(Vechs* v) {
 		}
 	}
 	char* lines[max_lines];
+	int lineno = 0;
 	Vechs* buf = os_vechs_new(32);
 	for (int i = 0; i < n; i++) {
 		char ch = os_vechs_get(v, i);
@@ -91,7 +92,7 @@ void susan(Vechs* v) {
 	susan_eval(lines, lineno);
 
 	for (int i = 0; i < lineno; i++) {
-		call os_free(lines[i]);
+		os_free(lines[i]);
 	}
 }
 
@@ -268,7 +269,7 @@ int susan_eval_line(char* line, int pc, int* registers, int* memory) {
 			susan_print_bad_command(cmd);
 			return -1;
 		}
-		for (int i = 1; i < num_parts - 1) {
+		for (int i = 1; i < num_parts - 1; i++) {
 			bdel_printstr(parts[i]);
 			bdel_putchar(' ');
 		}
