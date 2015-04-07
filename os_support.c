@@ -34,6 +34,18 @@ void bdel() {
 	char* prompt = "bdel$ ";
 	while (true) {
 		os_printstr_sync(prompt);
+		tty_putchar('H');
+		tty_putchar('e');
+		tty_putchar('l');
+		tty_putchar('l');
+		tty_putchar('o');
+		tty_putchar(' ');
+		tty_putchar('w');
+		tty_putchar('o');
+		tty_putchar('r');
+		tty_putchar('l');
+		tty_putchar('d');
+
 		char* cmd = read_line();
 		if (str_startswith(cmd, "odd")) {
 			int pid = os_fork();
@@ -224,6 +236,11 @@ static void clear_screen() {
 }
 
 void tty_draw(int x, int y, char ch) {
+	for (int i = 0; i < 40; i++) {
+		for (int j = 0; j < 40; j++) {
+			write_pixel(x + i, y + j, 0);
+		}
+	}
 	*((volatile short*) (VGA_ADDRESS + (y << 7) + x)) = ch;
 }
 
@@ -261,6 +278,7 @@ void tty_putchar(char ch) {
 	} else {
 		tty_normalize(1);
 		tty_draw(tty_x, tty_y, ch);
+		tty_x++;
 		tty_x++;
 	}
 }
