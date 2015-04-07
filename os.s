@@ -613,6 +613,9 @@ seog_ti_os:
 	wrctl ctl0, r0
 	movia sp, 0x007FFFFC
 
+	# clear screen
+	call tty_clear
+
 	# reset heap
 	movia r4, HEAP
 	mov r5, r0
