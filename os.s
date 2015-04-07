@@ -316,6 +316,9 @@ PROCESS_REGISTERS_TMP:
 STDIN:
 	.skip 4
 
+PS2_BREAK_IGNORE:
+	.skip 4
+
 EPSILON:
 	.string ""
 
@@ -563,12 +566,12 @@ interrupt_handle_ps2:
 	stw r15, 60(sp)
 	
 	movia r3,PS_2
-    movia r2,BREAK_IGNORE
-    ldb et,(r2)
+    movia r2, PS2_BREAK_IGNORE
+    ldb et, (r2)
     bne et,r0,interrupt_handle_break_2
-    movui et,0xf0
-    ldbuio r4,(r3)
-    beq et,r4,interrupt_handle_break_1
+    movui et, 0xf0
+    ldbuio r4, (r3)
+    beq et, r4, interrupt_handle_break_1
 
 interrupt_handle_ps2_make:
 	# TODO, decode
@@ -578,13 +581,13 @@ interrupt_handle_ps2_make:
 	
 interrupt_handle_break_1:
     movi et,1
-    movia r2,BREAK_IGNORE
+    movia r2,PS2_BREAK_IGNORE
     stb et,(r2)
     br interrupt_handle_ps2_epilogue
 
 interrupt_handle_break_2:
     ldbuio r0,(r3)
-    movia r2,BREAK_IGNORE
+    movia r2,PS2_BREAK_IGNORE
     stb r0,(r2)
     br interrupt_handle_ps2_epilogue
 
@@ -1567,7 +1570,7 @@ os_romania_parent:
 	# interrupts now "were last" disabled
 	wrctl ctl1, r0
 
-	addi sp, sp, 4
+	addi sp, sp, -4
 	stw ra, 0(sp)
 
 	# get node
@@ -1602,7 +1605,7 @@ os_romania_is_dir:
 	# interrupts now "were last" disabled
 	wrctl ctl1, r0
 
-	addi sp, sp, 4
+	addi sp, sp, -4
 	stw ra, 0(sp)
 
 	# get node

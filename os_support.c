@@ -197,7 +197,7 @@ void bdel() {
 				continue;
 			}
 			char* name = argv[pos];
-			if (streq(exec, "..")) {
+			if (streq(name, "..")) {
 				cwd = os_romania_parent(cwd);
 			} else {
 				int n = os_strlen(name);
@@ -270,32 +270,42 @@ void bdel() {
 		for (int i = 0; i < argc; i++) {
 			os_free(argv[i]);
 		}
-		os_free(argv);
+		if (argv != 0) {
+			os_free(argv);
+		}
 	}
 }
 
 Vechs* skye() {
 	Vechs* v = os_vechs_new(16);
+	bool had_prev = false;
 	while (true) {
 		char* str = bdel_readline();
+		int offset = 0;
 		if (str[0] == '\\') {
-			if (str[1] == '\\') {
-				// skip over escape character
-				vechs_append_str(v, str + 1);
-			} else {
+			if (str[1] != '\\') {
 				break;
 			}
-		} else {
-			vechs_append_str(v, str);
+			offset = 1;
 		}
+		if (had_prev) {
+			os_vechs_push(v, '\n');
+		}
+		vechs_append_str(v, str + offset);
 		os_free(str);
+		had_prev = true;
 	}
 	return v;
 }
 
 void skye_parse(char* str, char*** argv, int* argc) {
 	Vechs* buffer = os_vechs_new(16);
-	char** parts = os_malloc(os_strlen(str) * sizeof(char*));
+	int len = os_strlen(str);
+	if (len == 0) {
+		*argc = 0;
+		return;
+	}
+	char** parts = os_malloc(len * sizeof(char*));
 	int num = 0;
 	int i = 0;
 	while (true) {
