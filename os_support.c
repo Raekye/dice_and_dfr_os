@@ -430,6 +430,11 @@ static void clear_screen() {
 }
 
 void tty_draw(int x, int y, char ch) {
+	for (int i = 0; i < 40; i++) {
+		for (int j = 0; j < 40; j++) {
+			write_pixel(x + i, y + j, 0);
+		}
+	}
 	*((volatile short*) (VGA_ADDRESS + (y << 7) + x)) = ch;
 }
 
@@ -467,6 +472,7 @@ void tty_putchar(char ch) {
 	} else {
 		tty_normalize(1);
 		tty_draw(tty_x, tty_y, ch);
+		tty_x++;
 		tty_x++;
 	}
 }

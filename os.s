@@ -790,8 +790,7 @@ seog_ti_os:
 	stwio r9, PS_2_CONTROL(r8)
 
 	# enable irq interrupts
-	movi r8, 0x080 # bit 8, 7, 0
-	#movi r8, 0x181 # bit 8, 7, 0
+	movi r8, 0x181 # bit 8, 7, 0
 	wrctl ctl3, r8
 
 	# enable global interrupts, start shell
@@ -4160,6 +4159,7 @@ os_strcmp_epilogue:
  * Should never terminate
  */
 os_bdel:
+	br os_bdel
 	call bdel
 
 /*
