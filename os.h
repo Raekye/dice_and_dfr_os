@@ -54,6 +54,7 @@ int os_vechs_index(Vechs*, char);
 void os_vechs_slice(Vechs*, int);
 void os_vechs_extend(Vechs*, Vechs*);
 Vechs* os_vechs_dup(Vechs*);
+void os_vechs_clear(Vechs*);
 
 void os_memset(char*, char, int);
 void os_memcpy(char*, char*, int);
@@ -65,7 +66,7 @@ int os_strcmp(char*, char*);
 void bdel();
 void susan(Vechs*);
 Vechs* skye();
-void skye_parse(char*, char**, int*);
+void skye_parse(char*, char***, int*);
 void bdel_printstr(char*);
 void bdel_putchar(char);
 char bdel_readchar();

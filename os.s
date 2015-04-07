@@ -204,6 +204,7 @@
 .global os_vechs_slice
 .global os_vechs_extend
 .global os_vechs_dup
+.global os_vechs_clear
 
 .global os_malloc
 .global os_free
@@ -1804,7 +1805,7 @@ os_romania_block_from_node:
 	# get upper bits of byte 0, the upper 4 bits of block id
 	andi r9, r9, 0xf0
 	# shift upper 4 bits of block id
-	slli r10, r10, 4
+	slli r9, r9, 4
 	or r2, r9, r10
 
 os_romania_block_from_node_epilogue:
@@ -2415,7 +2416,7 @@ os_mort:
 	mov r8, r2
 	# get process table index
 	mov r4, r2
-	call process_table_index
+	call os_process_table_index
 	mov r15, r2
 	# get process table entry
 	mov r4, r15
@@ -3452,6 +3453,13 @@ os_vechs_delete_epilogue:
  */
 os_vechs_size:
 	ldw r2, 8(r4)
+	ret
+
+/*
+ * @param ptr
+ */
+os_vechs_clear:
+	stw r0, 8(r4)
 	ret
 
 /*

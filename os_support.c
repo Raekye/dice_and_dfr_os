@@ -37,7 +37,7 @@ void bdel() {
 		char* cmd = bdel_readline();
 
 		// parse
-		char** argv = NULL;
+		char** argv = 0;
 		int argc = 0;
 		skye_parse(cmd, &argv, &argc);
 		os_free(cmd);
@@ -145,8 +145,9 @@ void bdel() {
 					Vechs* contents = os_cat(node_id);
 					int n = os_vechs_size(contents);
 					for (int i = 0; i < n; i++) {
-						os_putchar_sync(os_vechs_get(contents, i));
+						bdel_putchar(os_vechs_get(contents, i));
 					}
+					bdel_putchar('\n');
 					os_vechs_delete(contents);
 				}
 			}
@@ -200,7 +201,7 @@ void bdel() {
 				cwd = os_romania_parent(cwd);
 			} else {
 				int n = os_strlen(name);
-				if (n < = 0 || n > 12) {
+				if (n <= 0 || n > 12) {
 					bdel_printstr("Invalid name\n");
 				} else {
 					int node_id = os_romania_node_from_name(cwd, name);
@@ -276,7 +277,7 @@ void bdel() {
 Vechs* skye() {
 	Vechs* v = os_vechs_new(16);
 	while (true) {
-		char* str = read_line();
+		char* str = bdel_readline();
 		if (str[0] == '\\') {
 			if (str[1] == '\\') {
 				// skip over escape character
@@ -301,6 +302,7 @@ void skye_parse(char* str, char*** argv, int* argc) {
 		if (str[i] == ' ' || str[i] == '\0') {
 			if (os_vechs_size(buffer) > 0) {
 				parts[num++] = str_from_vechs(buffer);
+				os_vechs_clear(buffer);
 			}
 			if (str[i] == '\0') {
 				break;
@@ -330,7 +332,7 @@ void bdel_putchar(char ch) {
 }
 
 void bdel_printstr(char* str) {
-	os_printstr_sync(str)
+	os_printstr_sync(str);
 }
 
 char bdel_readchar() {
@@ -341,13 +343,15 @@ char* bdel_readline() {
 	Vechs* v = os_vechs_new(16);
 	while (true) {
 		char ch = bdel_readchar();
-		bdel_putchar(ch);
 		if (ch == '\x08') {
 			if (os_vechs_size(v) > 0) {
 				os_vechs_pop(v);
+				bdel_putchar(ch);
 			}
 			continue;
-		} else if (ch == '\n') {
+		}
+		bdel_putchar(ch);
+		if (ch == '\n') {
 			break;
 		}
 		os_vechs_push(v, ch);
