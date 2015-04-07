@@ -98,6 +98,7 @@ char* tty_readline();
 // ps2
 void ps2_init();
 char ps2_decode(char);
+char ps2_shift(char);
 //char ps2_read_keyboard();
 //void ps2_interrupt_handler();
 

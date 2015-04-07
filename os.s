@@ -550,16 +550,20 @@ interrupt_handle_ps2:
 	# if same make code, ignore
 	beq r4, r9, interrupt_handle_ps2_epilogue
 
-
 	# shift down
 	beq r4, r18, interrupt_handle_ps2_shift
 
-	call ps2_decode
-
-	mov r4, r2
 	# last_make = data
 	stw r4, 0(r21)
 
+	# decode
+	call ps2_decode
+	mov r4, r2
+	# handle shift
+	call ps2_shift
+
+	# send data
+	mov r4, r2
 	call interrupt_have_byte_for_read
 	br interrupt_handle_ps2_epilogue
 
@@ -4175,7 +4179,6 @@ os_strcmp_epilogue:
  * Should never terminate
  */
 os_bdel:
-	br os_bdel
 	call bdel
 
 /*

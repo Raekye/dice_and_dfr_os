@@ -29,7 +29,6 @@ static void vechs_append_str(Vechs*, char*);
 static bool file_exists(int, char*);
 
 static void welcome_to_summoners_rift();
-static char upper_case(char);
 
 /* important */
 int main() {
@@ -379,9 +378,6 @@ char* str_from_vechs(Vechs* v) {
 
 void bdel_putchar(char ch) {
 	os_putchar_sync(ch);
-	if (ps2_is_shift_down()) {
-		ch = upper_case(ch);
-	}
 	tty_putchar(ch);
 }
 
@@ -423,17 +419,17 @@ bool streq(char* a, char* b) {
 /* tty */
 
 static void write_pixel(int x, int y, short colour) {
-  volatile short *vga_addr=(volatile short*)(0x08000000 + (y<<10) + (x<<1));
-  *vga_addr=colour;
+	volatile char *vga_addr = (volatile char*) (0x08000000 + (y << 10) + (x << 1));
+	*vga_addr = colour;
 }
 
 static void clear_screen() {
-  int x, y;
-  for (x = 0; x < 320; x++) {
-    for (y = 0; y < 240; y++) {
-	  write_pixel(x,y,0);
+	int x, y;
+	for (x = 0; x < 320; x++) {
+		for (y = 0; y < 240; y++) {
+			write_pixel(x, y, 0);
+		}
 	}
-  }
 }
 
 void tty_draw(int x, int y, char ch) {
@@ -442,7 +438,7 @@ void tty_draw(int x, int y, char ch) {
 			write_pixel(x + i, y + j, 0);
 		}
 	}
-	*((volatile short*) (VGA_ADDRESS + (y << 7) + x)) = ch;
+	*((volatile char*) (VGA_ADDRESS + (y << 7) + x)) = ch;
 }
 
 void tty_normalize(unsigned n) {
@@ -470,7 +466,6 @@ void tty_putchar(char ch) {
 	if (ch == '\n') {
 		tty_x = 0;
 		tty_y++;
-		tty_y++;
 		tty_normalize(0);
 	} else if (ch == '\r') {
 		for (int x = 0; x < TTY_MAX_X; x++) {
@@ -479,14 +474,12 @@ void tty_putchar(char ch) {
 		tty_x = 0;
 	// backspace
 	} else if (ch == 0x08) {
-		tty_x -= 2;
+		tty_x -= 1;
 		tty_putchar(' ');
-		tty_x -= 2;
+		tty_x -= 1;
 	} else {
 		tty_normalize(1);
 		tty_draw(tty_x, tty_y, ch);
-		tty_x++;
-		// TODO
 		tty_x++;
 	}
 }
@@ -886,7 +879,10 @@ void ps2_init() {
 	ascii[0x4A] = '/';
 }
 
-char upper_case(char c) {
+char ps2_shift(char c) {
+	if (!ps2_is_shift_down()) {
+		return c;
+	}
 	if (c == 'a') return 'A';
 	if (c == 'b') return 'B';
 	if (c == 'c') return 'C';
@@ -935,39 +931,3 @@ char upper_case(char c) {
 	if (c == '/') return '?';
 	return ' ';
 }
-
-/*
-void ps2_interrupt_handler() {
-	volatile unsigned char* addr = (volatile unsigned char*) PS2_DATA;
-	unsigned char data = *addr;
-	// break code
-	if (data == 0xf0) {
-		ps2_last_was_break = true;
-		return;
-	}
-	if (ps2_last_was_break) {
-		// shift code
-		if (data == 0x12) {
-			ps2_shift_down = false;
-			*((volatile char*) RED_LEDS) = 0;
-		}
-		ps2_last_was_break = false;
-		return;
-	}
-	if (data == ps2_last_make) {
-		// ignore
-		return;
-	}
-	// shift code
-	if (data == 0x12) {
-		ps2_shift_down = true;
-		*((volatile char*) RED_LEDS) = 1;
-		return;
-	}
-	char ch = ps2_decode(data);
-	if (ch != 0) {
-		interrupt_have_byte_for_read(ch);
-	}
-	ps2_last_make = data;
-}
-*/
