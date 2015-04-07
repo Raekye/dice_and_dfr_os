@@ -895,6 +895,10 @@ os_falloc:
 	# save lower 8 bits of block id
 	stb r10, 1(r9)
 
+	# save parent dir
+	ldw r12, 0(sp)
+	stb r12, 2(r9)
+
 	# check name length
 	ldw r5, 4(sp)
 	mov r4, r5

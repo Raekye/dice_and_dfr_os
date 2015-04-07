@@ -283,7 +283,8 @@ void bdel() {
 						continue;
 					}
 					Vechs* v = os_cat(node_id);
-					susan(v);
+					//susan(v);
+					prog_print_odd();
 					os_vechs_delete(v);
 				}
 			} else {
@@ -523,8 +524,8 @@ void prog_print_odd() {
 void prog_print_even() {
 	for (int i = 0; i < 8; i += 2) {
 		char ch = i + '0';
-		os_putchar_sync(ch);
-		os_putchar_sync('\n');
+		bdel_putchar(ch);
+		bdel_putchar('\n');
 		os_sleep(10);
 	}
 	os_mort();
