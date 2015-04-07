@@ -29,6 +29,7 @@ static void vechs_append_str(Vechs*, char*);
 static bool file_exists(int, char*);
 
 static void welcome_to_summoners_rift();
+static char upper_case(char);
 
 /* important */
 int main() {
@@ -36,12 +37,13 @@ int main() {
 }
 
 void bdel() {
-	//welcome_to_summoners_rift();
+	welcome_to_summoners_rift();
 
 	int cwd = 0;
 	char* prompt = "bdel$ ";
 	while (true) {
 		// prompt
+		//tty_putword(prompt);
 		bdel_printstr(prompt);
 		char* cmd = bdel_readline();
 
@@ -377,9 +379,14 @@ char* str_from_vechs(Vechs* v) {
 
 void bdel_putchar(char ch) {
 	os_putchar_sync(ch);
+	if (ps2_is_shift_down()) {
+		ch = upper_case(ch);
+	}
+	tty_putchar(ch);
 }
 
 void bdel_printstr(char* str) {
+	tty_putword(str);
 	os_printstr_sync(str);
 }
 
@@ -458,15 +465,23 @@ void tty_putchar(char ch) {
 	if (ch == '\n') {
 		tty_x = 0;
 		tty_y++;
+		tty_y++;
 		tty_normalize(0);
 	} else if (ch == '\r') {
 		for (int x = 0; x < TTY_MAX_X; x++) {
 			tty_draw(x, tty_y, ' ');
 		}
 		tty_x = 0;
+	// backspace
+	} else if (ch == 0x08) {
+		tty_x -= 2;
+		tty_putchar(' ');
+		tty_x -= 2;
 	} else {
 		tty_normalize(1);
 		tty_draw(tty_x, tty_y, ch);
+		tty_x++;
+		// TODO
 		tty_x++;
 	}
 }
@@ -718,6 +733,80 @@ char ps2_decode(char x) {
 	return 0;
 }
 
+
+char upper(char x) {
+	//if (x =='a';
+	//if (x =='b';
+	if (x == 0x21) return 'c';
+	if (x == 0x23) return 'd';
+	if (x == 0x24) return 'e';
+	if (x == 0x2B) return 'f';
+	if (x == 0x34) return 'g';
+	if (x == 0x33) return 'h';
+	if (x == 0x43) return 'i';
+	if (x == 0x3B) return 'j';
+	if (x == 0x42) return 'k';
+	if (x == 0x4B) return 'l';
+	if (x == 0x3A) return 'm';
+	if (x == 0x31) return 'n';
+	if (x == 0x44) return 'o';
+	if (x == 0x4D) return 'p';
+	if (x == 0x15) return 'q';
+	if (x == 0x2D) return 'r';
+	if (x == 0x1B) return 's';
+	if (x == 0x2C) return 't';
+	if (x == 0x3C) return 'u';
+	if (x == 0x2A) return 'v';
+	if (x == 0x1D) return 'w';
+	if (x == 0x22) return 'x';
+	if (x == 0x35) return 'y';
+	if (x == 0x1A) return 'z';
+
+	if (x == 0x45) return '0';
+	if (x == 0x16) return '1';
+	if (x == 0x1E) return '2';
+	if (x == 0x26) return '3';
+	if (x == 0x25) return '4';
+	if (x == 0x2E) return '5';
+	if (x == 0x36) return '6';
+	if (x == 0x3D) return '7';
+	if (x == 0x3E) return '8';
+	if (x == 0x46) return '9';
+	if (x == 0x0E) return '`';
+	if (x == 0x4E) return '-';
+	if (x == 0x55) return '=';
+	if (x == 0x5D) return '\\';
+
+	if (x == 0x66) return 0x08; // backspace
+	if (x == 0x29) return ' ';
+	if (x == 0x0D) return '\t';
+	
+	if (x == 0x5A) return '\n';
+
+	if (x == 0x54) return '[';
+	if (x == 0x7C) return '*';
+	if (x == 0x7B) return '-';
+	if (x == 0x79) return '+';
+	if (x == 0x71) return '.';
+	if (x == 0x70) return '0';
+	if (x == 0x69) return '1';
+	if (x == 0x72) return '2';
+	if (x == 0x7A) return '3';
+	if (x == 0x6B) return '4';
+	if (x == 0x73) return '5';
+	if (x == 0x74) return '6';
+	if (x == 0x6C) return '7';
+	if (x == 0x75) return '8';
+	if (x == 0x7D) return '9';
+	if (x == 0x5B) return ']';
+	if (x == 0x4C) return ';';
+	if (x == 0x52) return '\'';
+	if (x == 0x41) return ',';
+	if (x == 0x49) return '.';
+	if (x == 0x4A) return '/';
+	return 0;
+}
+
 void ps2_init() {
 	char* ascii = ps2_ascii;
 	os_memset(ascii, 0, 256);
@@ -790,6 +879,56 @@ void ps2_init() {
 	ascii[0x41] = ',';
 	ascii[0x49] = '.';
 	ascii[0x4A] = '/';
+}
+
+char upper_case(char c) {
+	if (c == 'a') return 'A';
+	if (c == 'b') return 'B';
+	if (c == 'c') return 'C';
+	if (c == 'd') return 'D';
+	if (c == 'e') return 'E';
+	if (c == 'f') return 'F';
+	if (c == 'g') return 'G';
+	if (c == 'h') return 'H';
+	if (c == 'i') return 'I';
+	if (c == 'j') return 'J';
+	if (c == 'k') return 'K';
+	if (c == 'l') return 'L';
+	if (c == 'm') return 'M';
+	if (c == 'n') return 'N';
+	if (c == 'o') return 'O';
+	if (c == 'p') return 'P';
+	if (c == 'q') return 'Q';
+	if (c == 'r') return 'R';
+	if (c == 's') return 'S';
+	if (c == 't') return 'T';
+	if (c == 'u') return 'U';
+	if (c == 'v') return 'V';
+	if (c == 'w') return 'W';
+	if (c == 'x') return 'X';
+	if (c == 'y') return 'Y';
+	if (c == 'z') return 'Z';
+	if (c == '`') return '~';
+	if (c == '1') return '!';
+	if (c == '2') return '@';
+	if (c == '3') return '#';
+	if (c == '4') return '$';
+	if (c == '5') return '%';
+	if (c == '6') return '^';
+	if (c == '7') return '&';
+	if (c == '8') return '*';
+	if (c == '9') return '(';
+	if (c == '0') return ')';
+	if (c == '-') return '_';
+	if (c == '=') return '+';
+	if (c == '[') return '{';
+	if (c == ']') return '}';
+	if (c == ';') return ':';
+	if (c == '\'') return '"';
+	if (c == ',') return '<';
+	if (c == '.') return '>';
+	if (c == '/') return '?';
+	return ' ';
 }
 
 /*

@@ -527,6 +527,8 @@ interrupt_handle_ps2:
 	movia r23, PS_2
 	movia r22, PS2_LAST_WAS_BREAK
 	movia r21, PS2_LAST_MAKE
+
+
 	movia r20, PS2_SHIFT
 	movia r19, 0xf0
 	movia r18, 0x12
@@ -537,6 +539,7 @@ interrupt_handle_ps2:
 
 	# read
 	ldbio r4, PS_2_DATA(r23)
+	andi r4, r4, 0x00ff # mask
 
 	# break code
 	beq r4, r19, interrupt_handle_ps2_break
@@ -547,27 +550,35 @@ interrupt_handle_ps2:
 	# if same make code, ignore
 	beq r4, r9, interrupt_handle_ps2_epilogue
 
-	# last_make = data
-	stw r4, 0(r21)
 
 	# shift down
 	beq r4, r18, interrupt_handle_ps2_shift
 
 	call ps2_decode
+
 	mov r4, r2
+	# last_make = data
+	stw r4, 0(r21)
+
 	call interrupt_have_byte_for_read
 	br interrupt_handle_ps2_epilogue
 
 interrupt_handle_ps2_break:
 	# last_was_break = true
 	stw r10, 0(r22)
+	movi r3, 0x1F
+	stw r3, 0(r21)
+
 	br interrupt_handle_ps2_epilogue
 
 interrupt_handle_ps2_break_code:
 	# last_was_break = false
 	stw r0, 0(r22)
+	movi r3, 0x1F
+	stw r3, 0(r21)
 	# if broke shift
 	beq r4, r18, interrupt_handle_ps2_break_shift
+	
 	br interrupt_handle_ps2_epilogue
 
 interrupt_handle_ps2_break_shift:
@@ -578,6 +589,11 @@ interrupt_handle_ps2_break_shift:
 interrupt_handle_ps2_shift:
 	# shift = true
 	stw r10, 0(r20)
+	br interrupt_handle_ps2_epilogue
+
+interrupt_handle_ps2_same_make:
+	movi r3, 0x1F
+	stw r3, 0(r21)
 	br interrupt_handle_ps2_epilogue
 
 interrupt_handle_ps2_epilogue:
@@ -790,8 +806,8 @@ seog_ti_os:
 	stwio r9, PS_2_CONTROL(r8)
 
 	# enable irq interrupts
-	movi r8, 0x080 # bit 8, 7, 0
-	#movi r8, 0x181 # bit 8, 7, 0
+	#movi r8, 0x080 # bit 8, 7, 0
+	movi r8, 0x181 # bit 8, 7, 0
 	wrctl ctl3, r8
 
 	# enable global interrupts, start shell
@@ -4533,7 +4549,7 @@ os_io_yoloq_dequeue:
  * r8: polling spaces available for write
  * r23: jtag uart
  * @param char
- * NOTE: don't call within other system functions
+ * NOTE: don''t call within other system functions
  */
 os_putchar_sync:
 	# disable interrupts
@@ -4678,6 +4694,8 @@ os_getup:
 	eret
 
 /* ps2 */
+
+
 ps2_is_shift_down:
 	movia r2, PS2_SHIFT
 	ldw r2, 0(r2)
