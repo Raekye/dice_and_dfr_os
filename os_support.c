@@ -33,7 +33,7 @@ int main() {
 }
 
 void bdel() {
-	welcome_to_summoners_rift();
+	//welcome_to_summoners_rift();
 
 	int cwd = 0;
 	char* prompt = "bdel$ ";
@@ -340,7 +340,7 @@ void skye_parse(char* str, char*** argv, int* argc) {
 		*argc = 0;
 		return;
 	}
-	char** parts = os_malloc(len * sizeof(char*));
+	char** parts = (char**) os_malloc(len * sizeof(char*));
 	int num = 0;
 	int i = 0;
 	while (true) {

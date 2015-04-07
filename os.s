@@ -3971,9 +3971,9 @@ os_vechs_normalize_copy_loop:
 	# if counter == num elements
 	beq r5, r8, os_vechs_normalize_finalize
 	call os_vechs_get
-	stw r2, 0(r11)
+	stb r2, 0(r11)
 	addi r5, r5, 1
-	addi r11, r11, 4
+	addi r11, r11, 1
 	br os_vechs_normalize_copy_loop
 
 os_vechs_normalize_finalize:
