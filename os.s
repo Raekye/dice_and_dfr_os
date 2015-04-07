@@ -217,7 +217,7 @@
 .global os_strcpy
 .global os_strcmp
 
-.equ HEAP_BYTES, 4096
+.equ HEAP_BYTES, 65536
 
 .equ ROMANIA_NODES_BYTES, 4096
 .equ ROMANIA_BLOCKS_BYTES, 252144
