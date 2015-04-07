@@ -208,6 +208,21 @@ Vechs* skye() {
 }
 
 /* tty */
+
+static void write_pixel(int x, int y, short colour) {
+  volatile short *vga_addr=(volatile short*)(0x08000000 + (y<<10) + (x<<1));
+  *vga_addr=colour;
+}
+
+static void clear_screen() {
+  int x, y;
+  for (x = 0; x < 320; x++) {
+    for (y = 0; y < 240; y++) {
+	  write_pixel(x,y,0);
+	}
+  }
+}
+
 void tty_draw(int x, int y, char ch) {
 	*((volatile short*) (VGA_ADDRESS + (y << 7) + x)) = ch;
 }
@@ -223,6 +238,7 @@ void tty_normalize(unsigned n) {
 }
 
 void tty_clear() {
+	clear_screen();
 	for (int x = 0; x < TTY_MAX_X; x++) {
 		for (int y = 0; y < TTY_MAX_Y; y++) {
 			tty_draw(x, y, ' ');
