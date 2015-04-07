@@ -57,6 +57,236 @@
 
 #include "os.h"
 
+static void susan_eval(char**, int);
+static int susan_eval_line(char*, int, int*);
+static void susan_print_bad_command(char*);
+static int susan_parse_register(char*);
+static int susan_parse_hex(char*);
+
 void susan(Vechs* v) {
-	bdel_printstr("So wise so young, never do they live long.\n");
+	int n = os_vechs_size(v);
+	int max_lines = 1;
+	for (int i = 0; i < n; i++) {
+		if (os_vechs_get(v, i) == '\n') {
+			max_lines++;
+		}
+	}
+	char* lines[max_lines];
+	Vechs* buf = os_vechs_new(32);
+	for (int i = 0; i < n; i++) {
+		char ch = os_vechs_get(v, i);
+		if (ch == '\n') {
+			if (os_vechs_size(buf) > 0) {
+				lines[lineno++] = str_from_vechs(buf);
+			}
+		} else {
+			os_vechs_push(buf, ch);
+		}
+	}
+	if (os_vechs_size(buf) > 0) {
+		lines[lineno++] = str_from_vechs(buf);
+	}
+	os_vechs_delete(buf);
+
+	susan_eval(lines, lineno);
+
+	for (int i = 0; i < lineno; i++) {
+		call os_free(lines[i]);
+	}
+}
+
+void susan_eval(char** lines, int num_lines) {
+	int registers[8];
+	int pc = 0;
+	while (true) {
+		int next_pc = susan_eval_line(lines[pc], pc, registers);
+		if (next_pc < 0 || next_pc >= num_lines) {
+			break;
+		}
+		pc = next_pc;
+	}
+}
+
+int susan_eval_line(char* line, int pc, int* registers) {
+	char** parts = 0;
+	int num_parts = 0;
+	skye_parse(line, &parts, &num_parts);
+
+	int next_pc = pc + 1;
+	if (num_parts == 0) {
+		return next_pc;
+	}
+
+	char* cmd = parts[0];
+	if (streq(cmd, "literal")) {
+		if (num_parts < 3) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+		int r = susan_parse_register(parts[1]);
+		if (r < 0) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+		int x = susan_parse_hex(parts[2]);
+		registers[r] = x;
+	} else if (streq(cmd, "add")) {
+		if (num_parts < 4) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+		int r = susan_parse_register(parts[1]);
+		if (r < 0) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+		int r2 = susan_parse_register(parts[1]);
+		if (r2 < 0) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+		int r3 = susan_parse_register(parts[1]);
+		if (r3 < 0) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+		registers[r] = registers[r2] + registers[r3];
+	} else if (streq(cmd, "mul")) {
+		if (num_parts < 4) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+		int r = susan_parse_register(parts[1]);
+		if (r < 0) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+		int r2 = susan_parse_register(parts[1]);
+		if (r2 < 0) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+		int r3 = susan_parse_register(parts[1]);
+		if (r3 < 0) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+		registers[r] = registers[r2] * registers[r3];
+	} else if (streq(cmd, "puthex")) {
+		if (num_parts < 2) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+		int r = susan_parse_register(parts[1]);
+		if (r < 0) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+		//bdel_puthex(registers[r]);
+	} else if (streq(cmd, "readhex")) {
+		if (num_parts < 2) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+		int r = susan_parse_register(parts[1]);
+		if (r < 0) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+		//registers[r] = bdel_readhex();
+	} else if (streq(cmd, "jmp")) {
+		if (num_parts < 2) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+		int r = susan_parse_register(parts[1]);
+		if (r < 0) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+		next_pc = registers[r];
+	} else if (streq(cmd, "blt")) {
+		if (num_parts < 4) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+	} else if (streq(cmd, "beq")) {
+		if (num_parts < 4) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+	} else if (streq(cmd, "bge")) {
+		if (num_parts < 4) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+	} else if (streq(cmd, "echo")) {
+		if (num_parts < 2) {
+			susan_print_bad_command(cmd);
+			return -1;
+		}
+	} else if (streq(cmd, "load")) {
+	} else if (streq(cmd, "store")) {
+	} else {
+		bdel_printstr("Syntax error: unknown ");
+		bdel_printstr(cmd);
+		bdel_printstr(" on line ");
+		//bdel_puthex(pc);
+		bdel_putchar('\n');
+		return -1;
+	}
+
+	for (int i = 0; i < num_parts; i++) {
+		os_free(parts[i]);
+	}
+	if (parts != 0) {
+		os_free(parts);
+	}
+	return next_pc;
+}
+
+void susan_print_bad_command(char* cmd) {
+	bdel_printstr("Invalid use of ");
+	bdel_printstr(cmd);
+	bdel_putchar('\n');
+}
+
+int susan_parse_register(char* str) {
+	if (str[0] == '\0') {
+		return -1;
+	}
+	if ('0' <= str[1] && str[1] <= '7') {
+		return str[1] - '0';
+	}
+	return -1;
+}
+
+int susan_parse_hex(char* str) {
+	bool neg = false;
+	int i = 0;
+	if (str[i] == '-') {
+		neg = true;
+		i = 1;
+	}
+	if (str[i] != '0' || str[i + 1] != 'x') {
+		return 0;
+	}
+	i += 2;
+	int x = 0;
+	while (true) {
+		char ch = str[i];
+		if (ch == '\0') {
+			return x * (neg ? -1 : 1);
+		}
+		int y = -1;
+		if ('0' <= ch && ch <= '9') {
+			y = ch - '0';
+		}
+		if ('a' <= ch && ch <= 'f') {
+			y = ch - 'a' + 10;
+		}
+		if (y >= 0) {
+			x = (x << 4) | y;
+		}
+	}
 }
