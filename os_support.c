@@ -19,9 +19,6 @@ static void prog_print_odd();
 static void prog_print_even();
 static void prog_add();
 
-static int read_int();
-static void write_int(int);
-
 static bool str_startswith(char*, char*);
 static int str_split(char*, char);
 static void vechs_append_str(Vechs*, char*);
@@ -381,13 +378,91 @@ void bdel_putchar(char ch) {
 	tty_putchar(ch);
 }
 
-void bdel_printstr(char* str) {
-	tty_putword(str);
-	os_printstr_sync(str);
-}
-
 char bdel_readchar() {
 	return os_readchar();
+}
+
+void bdel_printstr(char* str) {
+	int i = 0;
+	while (true) {
+		if (str[i] == '\0') {
+			break;
+		}
+		bdel_putchar(str[i]);
+		i++;
+	}
+}
+
+void bdel_printdec(int x) {
+	int power = 1;
+	while (x / power >= 10) {
+		power *= 10;
+	}
+	while (power >= 1) {
+		int y = x / power;
+		bdel_putchar(y + '0');
+		x = x % power;
+		power /= 10;
+	}
+}
+
+void bdel_printhex(int x) {
+	bdel_putchar('0');
+	bdel_putchar('x');
+	for (int i = 7; i >= 0; i--) {
+		int mask = 0xf << (4 * i);
+		int bits = ((unsigned) (x & mask)) >> (4 * i);
+		if (bits < 10) {
+			bdel_putchar(bits + '0');
+		} else {
+			bdel_putchar(bits + 'A' - 10);
+		}
+	}
+}
+
+int bdel_readdec() {
+	int x = 0;
+	while (true) {
+		char ch = bdel_readchar();
+		bdel_putchar(ch);
+		if (ch == '\n') {
+			break;
+		}
+		if ('0' <= ch && ch <= '9') {
+			x = (x * 10) + ch - '0';
+		}
+	}
+	return x;
+}
+
+int bdel_readhex() {
+	int stage = 0;
+	while (stage < 2) {
+		char ch = bdel_readchar();
+		if (stage == 0) {
+			stage = (ch == '0') ? 1 : 0;
+		} else if (stage == 1) {
+			stage = (ch == 'x') ? 2 : 0;
+		}
+	}
+	int x = 0;
+	while (true) {
+		char ch = bdel_readchar();
+		bdel_putchar(ch);
+		if (ch == '\n') {
+			break;
+		}
+		int val = -1;
+		if ('0' <= ch && ch <= '9') {
+			val = ch - '0';
+		} else if ('a' <= ch && ch <= 'f') {
+			val = ch - 'a' + 10;
+		}
+		if (val >= 0) {
+			x = (x * 16) + val;
+		}
+	}
+	return x;
 }
 
 char* bdel_readline() {
@@ -543,39 +618,14 @@ void prog_print_even() {
 }
 
 void prog_add() {
-	int x = read_int();
-	int y = read_int();
-	write_int(x + y);
+	bdel_printstr("Please enter a number: ");
+	int x = bdel_readdec();
+	bdel_printstr("Please enter another number: ");
+	int y = bdel_readdec();
+	bdel_printstr("The sum is: ");
+	bdel_printdec(x + y);
 	bdel_putchar('\n');
 	os_mort();
-}
-
-int read_int() {
-	int x = 0;
-	while (true) {
-		char ch = bdel_readchar();
-		bdel_putchar(ch);
-		if (ch == '\n') {
-			break;
-		}
-		if ('0' <= ch && ch <= '9') {
-			x = (x * 10) + ch - '0';
-		}
-	}
-	return x;
-}
-
-void write_int(int x) {
-	int power = 1;
-	while (x / power >= 10) {
-		power *= 10;
-	}
-	while (power >= 1) {
-		int y = x / power;
-		os_putchar_sync(y + '0');
-		x = x % power;
-		power /= 10;
-	}
 }
 
 bool str_startswith(char* str, char* prefix) {

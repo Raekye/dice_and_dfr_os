@@ -175,7 +175,7 @@ int susan_eval_line(char* line, int pc, int* registers, int* memory) {
 			return -1;
 		}
 		registers[r] = registers[r2] * registers[r3];
-	} else if (streq(cmd, "puthex")) {
+	} else if (streq(cmd, "printhex")) {
 		if (num_parts < 2) {
 			susan_print_bad_command(cmd);
 			return -1;
@@ -185,8 +185,7 @@ int susan_eval_line(char* line, int pc, int* registers, int* memory) {
 			susan_print_bad_command(cmd);
 			return -1;
 		}
-		// TODO
-		//bdel_puthex(registers[r]);
+		bdel_printhex(registers[r]);
 	} else if (streq(cmd, "readhex")) {
 		if (num_parts < 2) {
 			susan_print_bad_command(cmd);
@@ -197,8 +196,7 @@ int susan_eval_line(char* line, int pc, int* registers, int* memory) {
 			susan_print_bad_command(cmd);
 			return -1;
 		}
-		// TODO
-		//registers[r] = bdel_readhex();
+		registers[r] = bdel_readhex();
 	} else if (streq(cmd, "jmp")) {
 		if (num_parts < 2) {
 			susan_print_bad_command(cmd);
