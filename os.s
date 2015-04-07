@@ -502,8 +502,12 @@ interrupt_handle_jtag_uart_read:
 	ldw r11, 0(r23)
 
 	mov r4, r11
+	# get process table index
+	call os_process_table_index
+	mov r16, r2
 	# get process table entry
-	call os_process_table_entry
+	mov r4, r16
+	call os_process_table_entry_from_index
 	mov r12, r2
 	# get process table registers
 	call os_process_table_registers

@@ -25,12 +25,16 @@ static void vechs_append_str(Vechs*, char*);
 
 static bool file_exists(int, char*);
 
+static void welcome_to_summoners_rift();
+
 /* important */
 int main() {
 	seog_ti_os();
 }
 
 void bdel() {
+	welcome_to_summoners_rift();
+
 	int cwd = 0;
 	char* prompt = "bdel$ ";
 	while (true) {
@@ -283,10 +287,10 @@ void bdel() {
 						continue;
 					}
 					Vechs* v = os_cat(node_id);
-					//susan(v);
-					prog_print_odd();
+					susan(v);
 					os_vechs_delete(v);
 				}
+				os_mort();
 			} else {
 				if (!bg) {
 					os_foreground_delegate(pid);
@@ -514,8 +518,8 @@ char ps2_read_keyboard() {
 void prog_print_odd() {
 	for (int i = 1; i < 8; i += 2) {
 		char ch = i + '0';
-		os_putchar_sync(ch);
-		os_putchar_sync('\n');
+		bdel_putchar(ch);
+		bdel_putchar('\n');
 		os_sleep(10);
 	}
 	os_mort();
@@ -535,20 +539,23 @@ void prog_add() {
 	int x = read_int();
 	int y = read_int();
 	write_int(x + y);
+	bdel_putchar('\n');
 	os_mort();
 }
 
 int read_int() {
 	int x = 0;
 	while (true) {
-		char ch = os_readchar();
+		char ch = bdel_readchar();
+		bdel_putchar(ch);
 		if (ch == '\n') {
 			break;
 		}
 		if ('0' <= ch && ch <= '9') {
-			x += ch - '0';
+			x = (x * 10) + ch - '0';
 		}
 	}
+	return x;
 }
 
 void write_int(int x) {
@@ -612,6 +619,35 @@ void vechs_append_str(Vechs* v, char* str) {
 
 bool file_exists(int dir, char* name) {
 	return os_romania_node_from_name(dir, name) != 0;
+}
+
+void welcome_to_summoners_rift() {
+	bdel_printstr("Booting...\n");
+	os_sleep(5);
+	bdel_printstr("           --- Dice and dfr OS ---\n");
+	os_sleep(5);
+	bdel_printstr("               by Dice\n");
+	os_sleep(20);
+	bdel_printstr("               and dfr\n");
+	bdel_putchar('\n');
+	os_sleep(5);
+	bdel_printstr("Special thanks to\n");
+	os_sleep(10);
+	bdel_printstr("- Bdel\n");
+	bdel_printstr("- Rbutoi\n");
+	bdel_printstr("- Mshl\n");
+	bdel_printstr("- N0valey of the 0valey\n");
+	for (int i = 0; i < 8; i++) {
+		bdel_putchar('.');
+		os_sleep(2);
+	}
+	bdel_putchar('\n');
+	os_sleep(2);
+	bdel_putchar('\n');
+	bdel_printstr("\"Please sing for me again my muse, I need not light or fame.\n");
+	bdel_printstr(" In-a universe I cannot choose, this is my final game.\"\n");
+	os_sleep(2);
+	bdel_putchar('\n');
 }
 
 /* ps2 decoder */
