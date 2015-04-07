@@ -79,6 +79,7 @@ void susan(Vechs* v) {
 		if (ch == '\n') {
 			if (os_vechs_size(buf) > 0) {
 				lines[lineno++] = str_from_vechs(buf);
+				os_vechs_clear(buf);
 			}
 		} else {
 			os_vechs_push(buf, ch);
@@ -89,6 +90,9 @@ void susan(Vechs* v) {
 	}
 	os_vechs_delete(buf);
 
+	bdel_printstr("Executing program: ");
+	bdel_printhex(lineno);
+	bdel_printstr(" lines\n");
 	susan_eval(lines, lineno);
 
 	for (int i = 0; i < lineno; i++) {
@@ -121,6 +125,7 @@ int susan_eval_line(char* line, int pc, int* registers, int* memory) {
 	}
 
 	char* cmd = parts[0];
+
 	if (streq(cmd, "literal")) {
 		if (num_parts < 3) {
 			susan_print_bad_command(cmd);
@@ -351,7 +356,7 @@ int susan_parse_hex(char* str) {
 	while (true) {
 		char ch = str[i];
 		if (ch == '\0') {
-			return x * (neg ? -1 : 1);
+			break;
 		}
 		int y = -1;
 		if ('0' <= ch && ch <= '9') {
@@ -363,5 +368,7 @@ int susan_parse_hex(char* str) {
 		if (y >= 0) {
 			x = (x << 4) | y;
 		}
+		i++;
 	}
+	return x * (neg ? -1 : 1);
 }
