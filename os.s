@@ -492,50 +492,11 @@ interrupt_handle_jtag_uart:
 
 interrupt_handle_jtag_uart_read:
 	# get data
-	ldbio r9, JTAG_UART_DATA(r8)
+	ldbio r4, JTAG_UART_DATA(r8)
 
-	movia r23, PROCESS_FOREGROUND
-	movia r22, PROCESS_REGISTERS
-	movia r21, STDIN
+	# send data
+	call interrupt_have_byte_for_read
 
-	# get foreground process id
-	ldw r11, 0(r23)
-
-	mov r4, r11
-	# get process table index
-	call os_process_table_index
-	mov r16, r2
-	# get process table entry
-	mov r4, r16
-	call os_process_table_entry_from_index
-	mov r12, r2
-	# get process table registers
-	call os_process_table_registers
-	mov r13, r2
-
-	# get current status
-	ldb r14, PROCESS_TABLE_STATUS(r12)
-	movi r15, 4
-	# if foreground waiting for io
-	beq r14, r15, interrupt_handle_jtag_uart_read_immediate
-	# then foreground not waiting for io
-	ldw r4, 0(r21)
-	# append to stdin buffer
-	mov r5, r9
-	call os_vechs_push
-
-	# done
-	br interrupt_handle_jtag_uart_epilogue
-
-interrupt_handle_jtag_uart_read_immediate:
-	# update status running
-	movi r14, 1
-	stb r14, PROCESS_TABLE_STATUS(r12)
-
-	# save data in return register of process
-	stw r9, 8(r13)
-
-	# done
 	br interrupt_handle_jtag_uart_epilogue
 
 interrupt_handle_jtag_uart_write:
@@ -615,6 +576,89 @@ interrupt_handle_ps2_epilogue:
 	addi sp, sp, 64
 	ret
 
+/*
+ * r4: modified
+ * r5: modified
+ * r9: temporary
+ * r11: foreground process id
+ * r12: process table entry
+ * r13: process table registers
+ * r14: current foreground status
+ * r15: 4
+ * r16: process table index
+ * @param char
+ */
+interrupt_have_byte_for_read:
+	addi sp, sp, -40
+	stw r4, 0(sp)
+	stw r5, 4(sp)
+	stw r9, 8(sp)
+	stw r11, 12(sp)
+	stw r12, 16(sp)
+	stw r13, 20(sp)
+	stw r14, 24(sp)
+	stw r15, 28(sp)
+	stw r16, 32(sp)
+	stw ra, 36(sp)
+
+	movia r23, PROCESS_FOREGROUND
+	movia r22, PROCESS_REGISTERS
+	movia r21, STDIN
+
+	# get foreground process id
+	ldw r11, 0(r23)
+
+	mov r4, r11
+	# get process table index
+	call os_process_table_index
+	mov r16, r2
+	# get process table entry
+	mov r4, r16
+	call os_process_table_entry_from_index
+	mov r12, r2
+	# get process table registers
+	call os_process_table_registers
+	mov r13, r2
+
+	# get current status
+	ldb r14, PROCESS_TABLE_STATUS(r12)
+	movi r15, 4
+	# if foreground waiting for io
+	beq r14, r15, interrupt_have_byte_for_read_immediate
+	# then foreground not waiting for io
+	ldw r4, 0(r21)
+	# append to stdin buffer
+	ldw r5, 0(sp)
+	call os_vechs_push
+
+	# done
+	br interrupt_have_byte_for_read_epilogue
+
+interrupt_have_byte_for_read_immediate:
+	# update status running
+	movi r14, 1
+	stb r14, PROCESS_TABLE_STATUS(r12)
+
+	# save data in return register of process
+	ldw r9, 0(sp)
+	stw r9, 8(r13)
+
+	# done
+	br interrupt_have_byte_for_read_epilogue
+
+interrupt_have_byte_for_read_epilogue:
+	ldw r4, 0(sp)
+	ldw r5, 4(sp)
+	ldw r9, 8(sp)
+	ldw r11, 12(sp)
+	ldw r12, 16(sp)
+	ldw r13, 20(sp)
+	ldw r14, 24(sp)
+	ldw r15, 28(sp)
+	ldw r16, 32(sp)
+	ldw ra, 36(sp)
+	addi sp, sp, 40
+	ret
 
 /* main */
 seog_ti_os:
